@@ -1,0 +1,2 @@
+from .shannon_hamming_trainer import ShannonHammingTrainer
+from .hashnet_trainer import HashNetTrainer

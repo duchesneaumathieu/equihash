@@ -1,0 +1,28 @@
+{
+    "nb_steps": 100000,
+    
+    "network_class": "Uint8ResNet",
+    "network_kwargs": {
+        "k": 64,
+        "version": 18,
+        "batch_norm": true},
+    
+    "loader_class": "NaturalMosaic",
+    "loader_kwargs": {
+        "images_path": "images/180_100q.hdf5",
+        "perlin_path": "images/180x270_perlin.hdf5",
+        "size": 32},
+    
+    "trainer_class": "HashNetTrainer",
+    "trainer_kwargs": {
+        "alpha": 0.15,
+        "beta_scheduler_kwargs": {
+            "init": 1.0,
+            "gamma":0.0005, 
+            "power":0.5,
+            "step_size":200},
+        "optim_class": "Adam",
+        "optim_kwargs": {"lr": 0.001},
+        "clip_value": 0.1,
+        "nb_batch_per_step": 32}
+}
