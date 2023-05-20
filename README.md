@@ -86,6 +86,7 @@ The `-S` options will save the following results w.r.t. each queries:
   1) Was it a perfect retrieval
   2) Was the relevant data in the bucket
   3) The bucket size
+
 Those are used to create the graphs of the paper. (see notebooks/graphs.ipynb)
 
 
