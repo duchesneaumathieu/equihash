@@ -1,6 +1,8 @@
 # Learning an Equihash to Find a Needle in a Haystack
 This repository is the official implementation of Learning an Equihash to Find a Needle in a Haystack
 
+![Perfect retrieval rates on ProcDB](https://github.com/duchesneaumathieu/equihash/blob/main/notebooks/perfect_retrieval_rate.png)
+
 ## Requirements
 To install requirements:
 
@@ -133,3 +135,7 @@ Table 1: Perfect retrieval rates on ProcDB. Error bars are below 0.1%
 | HashNet (α=0.2)    |     26.7%       |      19.3%     |      11.3%     |       5.1%     |
 | HashNet (α=0.15)   |     28.7%       |      17.9%     |       8.3%     |       2.9%     |
 | HashNet (α=0.1)    |     11.8%       |       3.7%     |       1.0%     |       0.2%     |
+
+![Hamming distance pmf between negative pairs](https://github.com/duchesneaumathieu/equihash/blob/main/notebooks/negative_hamming_distance_pmf.png)
+
+![Retrieved bucket size distribution in a 1B database](https://github.com/duchesneaumathieu/equihash/blob/main/notebooks/retrieved_bucket_size_distribution_1b.png)
