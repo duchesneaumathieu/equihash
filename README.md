@@ -1,5 +1,5 @@
 # Learning an Equihash to Find a Needle in a Haystack
-This repository is the official implementation of Learning an Equihash to Find a Needle in a Haystack
+This repository is the official implementation of Learning an Equihash to Find a Needle in a Haystack.
 
 ![Perfect retrieval rates on ProcDB](https://github.com/duchesneaumathieu/equihash/blob/main/notebooks/perfect_retrieval_rate.png)
 
@@ -18,14 +18,14 @@ gdown --folder 1voIlQpQYcY-V8KTZOCOTHsdpbCNHtaRy
 ```
 
 ## Equihash training and evaluation pipeline
-1) Train the model with ```train.py```
-2) Encode the database with ```encode_mosaics.py```
-3) Build the inverted index with ```build_index.py```
-4) Encode the queries, again with ```encode_mosaics.py```
-5) Evaluate the inverted index on those queries with ```eval_index.py```
+1) Train the model with `train.py`
+2) Encode the database with `encode_mosaics.py`
+3) Build the inverted index with `build_index.py`
+4) Encode the queries, again with `encode_mosaics.py`
+5) Evaluate the inverted index on those queries with `eval_index.py`
 
 ## Training
-To train the models in the paper, run those commands:
+To train the models in the paper, run:
 ```sh
 python train.py configs/natural_mosaic_shannon_hamming_64c3.json -p `seq 0 5000 100000` -f 100 -e -D 51966
 python train.py configs/natural_mosaic_shannon_hamming_64c3_32c4.json -p `seq 0 5000 100000` -f 100 -e -D 51966
@@ -33,13 +33,13 @@ python train.py configs/natural_mosaic_hashnet_0.1a.json -p `seq 0 5000 100000` 
 python train.py configs/natural_mosaic_hashnet_0.15a.json -p `seq 0 5000 100000` -f 100 -e -D 51966
 python train.py configs/natural_mosaic_hashnet_0.2a.json -p `seq 0 5000 100000` -f 100 -e -D 51966
 ```
-With the training seed set to 51966 (0xCAFE), the networks should be exactly the same as in the paper.
+With the training seed set to 51966 (0xCAFE), the networks should be the same as in the paper.
 Those commands will create checkpoints in the `states/` folder. Each network takes about one week to train and requires a GPU with at least 30GB of memory.
 
-Use `python train.py --help` for more options. The configs used in the paper are in `configs/`. To train a different model, you will need to create a new config file.
+Use `python train.py --help` for more options. The configs used in the paper are in `configs/`. Creating a new config file to train a different model is possible.
 
 ## Encoding the ProcDB database
-To use the same database as in the paper, use the precedural seed 2766 (0xACE). We set ```-w valid``` to use the validation image bank.
+To use the same database as in the paper, use the procedural seed 2766 (0xACE). We set `-w valid` to use the validation image bank.
 ```sh
 python encode_mosaics.py configs/natural_mosaic_shannon_hamming_64c3.json -l100000 -iimages/natural_index1Bx2.hdf5 -wvalid -D2766
 python encode_mosaics.py configs/natural_mosaic_shannon_hamming_64c3_32c4.json -l100000 -iimages/natural_index1Bx2.hdf5 -wvalid -D2766
@@ -47,8 +47,8 @@ python encode_mosaics.py configs/natural_mosaic_hashnet_0.2a.json -l100000 -iima
 python encode_mosaics.py configs/natural_mosaic_hashnet_0.15a.json -l100000 -iimages/natural_index1Bx2.hdf5 -wvalid -D2766
 python encode_mosaics.py configs/natural_mosaic_hashnet_0.1a.json -l100000 -iimages/natural_index1Bx2.hdf5 -wvalid -D2766
 ```
-Each command takes about 160 hours (with a GPU) and produce a 8GB hdf5 file in `fingerprints/`. Those can be parallelized with the `-n` and `-j` option, use `python encode_mosaics.py --help` for more informations.
-Afterward, if `-n` and `-j` are used, you need to merge the chunks together (run `python merge.py --help`).
+Each command takes about 160 hours (with a GPU) and produces an 8GB hdf5 file in `fingerprints/`. Those can be parallelized with the `-n` and `-j` options. Use `python encode_mosaics.py --help` for more information.
+If parallelization is used, merging the chunks is needed (run `python merge.py --help`).
 
 ## Building the inverted index
 To build the database's inverted index, run:
@@ -59,11 +59,11 @@ python build_index.py configs/natural_mosaic_hashnet_0.2a.json -l100000 -wvalid 
 python build_index.py configs/natural_mosaic_hashnet_0.15a.json -l100000 -wvalid -D2766
 python build_index.py configs/natural_mosaic_hashnet_0.1a.json -l100000 -wvalid -D2766
 ```
-Each commands takes about 5 minutes and create a 20GB hdf5 file in `indexes/`.
+Each command takes about 5 minutes to run, creating a 20GB hdf5 file in `indexes/`.
 Use `python build_index.py --help` for more options.
 
 ## Encoding the queries
-Similar to encoding the database, however we set `-L1000000` to only encode the first 1M queries. Furthermore, we use the seed 3054 (0xBEE). If we use 2766, the queries will be exactly the same as the database (and every model would have 100% recall). 
+Similar to encoding the database, however, we set `-L1000000` to only encode the first 1M queries. Furthermore, we use the seed 3054 (0xBEE). If we use 2766, the queries will be the same as the first 1M chunk of the database (and every model would have 100% recall). 
 ```sh
 python encode_mosaics.py configs/natural_mosaic_shannon_hamming_64c3.json -l100000 -iimages/natural_index1Bx2.hdf5 -wvalid -D3054 -L1000000
 python encode_mosaics.py configs/natural_mosaic_shannon_hamming_64c3_32c4.json -l100000 -iimages/natural_index1Bx2.hdf5 -wvalid -D3054 -L1000000
@@ -71,7 +71,7 @@ python encode_mosaics.py configs/natural_mosaic_hashnet_0.2a.json -l100000 -iima
 python encode_mosaics.py configs/natural_mosaic_hashnet_0.15a.json -l100000 -iimages/natural_index1Bx2.hdf5 -wvalid -D3054 -L1000000
 python encode_mosaics.py configs/natural_mosaic_hashnet_0.1a.json -l100000 -iimages/natural_index1Bx2.hdf5 -wvalid -D3054 -L1000000
 ```
-Each command takes about 10 minutes (with a GPU) and create a 8MB hdf5 file in `fingerprints/`.
+Each command takes about 10 minutes (with a GPU) and creates an 8MB hdf5 file in `fingerprints/`.
 
 ## Evaluation of the equihash
 To evaluate the models, run:
@@ -82,9 +82,9 @@ python eval_index.py -Iindexes/natural_mosaic_hashnet_0.2a_step_100000_valid_ind
 python eval_index.py -Iindexes/natural_mosaic_hashnet_0.15a_step_100000_valid_index_2766.hdf5 -Qfingerprints/natural_mosaic_hashnet_0.15a_step_100000_valid_1000000fingerprints_3054.hdf5 -Sresults/natural_mosaic_hashnet_0.15a_step_100000_valid.pkl
 python eval_index.py -Iindexes/natural_mosaic_hashnet_0.1a_step_100000_valid_index_2766.hdf5 -Qfingerprints/natural_mosaic_hashnet_0.1a_step_100000_valid_1000000fingerprints_3054.hdf5 -Sresults/natural_mosaic_hashnet_0.1a_step_100000_valid.pkl
 ```
-Use `python eval_index.py --help` for more options. Each command will produce one row of the paper's Table 1.
+Use `python eval_index.py --help` for more options. Each command will produce one row of Table 1 from the paper.
 
-The `-S` options will save the following results w.r.t. each queries:
+The `-S` options will save the following results w.r.t. each query:
   1) Was it a perfect retrieval
   2) Was the relevant data in the bucket
   3) The bucket size
