@@ -159,7 +159,7 @@ class NaturalMosaic(MosaicLoader):
 
         images = self.format_converter.torch_rgb_to_hls(images.float()/255)
 
-        #updating hue (rotation between -45 degree and 45 degree)
+        #updating hue
         images[:,0] += torch_uniform(-1/16, 1/16, (n,), device=self.device, generator=generator).view(n, 1, 1)
         images[:,0] %= 1
 
