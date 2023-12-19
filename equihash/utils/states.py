@@ -1,4 +1,4 @@
-import torch
+import os, torch
 from equihash.utils import dict_diff
 
 def load_state(path, config, net, trainer, train_results, valid_results, force=False, verbose=False):
@@ -18,18 +18,19 @@ def load_state(path, config, net, trainer, train_results, valid_results, force=F
     trainer.load_state_dict(state['trainer'])
     train_results.__dict__ = state['train_results']
     valid_results.__dict__ = state['valid_results']
-    #torch.set_rng_state(state['cpu_rng'])
-    #torch.cuda.set_rng_state(state['gpu_rng'])
+    torch.set_rng_state(state['cpu_rng'])
+    torch.cuda.set_rng_state(state['gpu_rng'])
     return state['config']
 
 def save_state(path, config, net, trainer, train_results, valid_results):
     if path.startswith('/dev/null'): return
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     state = {'config': config,
              'net': net.state_dict(),
              'trainer': trainer.state_dict(),
              'train_results': train_results.__dict__,
              'valid_results': valid_results.__dict__,
-             #'cpu_rng': torch.get_rng_state(),
-             #'gpu_rng': torch.cuda.get_rng_state()
+             'cpu_rng': torch.get_rng_state(),
+             'gpu_rng': torch.cuda.get_rng_state()
             }
     torch.save(state, path)
