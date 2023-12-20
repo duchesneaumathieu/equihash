@@ -16,7 +16,7 @@ def python_search(code, heads, links, codes):
     return index
 
 class InvertedIndex(object):
-    def __init__(self, path, mode):
+    def __init__(self, path=None, mode='r'):
         if mode not in _supported_modes:
             raise ValueError(f'mode=\'{mode}\' is not supported, supported modes are: {_supported_modes}.')
         self.path = path
@@ -75,6 +75,7 @@ class InvertedIndex(object):
             cython_quadratic_build(self.heads, self.links, self.codes)
         else: raise ValueError(f'algo must be "linear" or "quadratic", got {algo}')
         self._loaded = True
+        return self
         
     def __getitem__(self, code):
         self._check_ready()
@@ -82,8 +83,13 @@ class InvertedIndex(object):
             return cython_search(code, self.heads, self.links, self.codes)
         return python_search(code, self.heads, self.links, self.codes)
     
+    def _check_path(self):
+        if self.path is None:
+            raise ValueError('path is None, please init the object with a path.')
+        
     def __enter__(self):
         if not self.loaded:
+            self._check_path()
             self._file = h5py.File(self.path, self.mode)
             self.heads = self._file['heads'] if 'heads' in self._file else None
             self.links = self._file['links'] if 'links' in self._file else None
@@ -98,6 +104,7 @@ class InvertedIndex(object):
         if self.loaded:
             return
             
+        self._check_path()
         f = self._file if not self.closed else h5py.File(self.path, 'r')
         
         try:
@@ -122,6 +129,7 @@ class InvertedIndex(object):
         if self.readonly:
             raise ValueError('Cannot save if mode is read only.')
         
+        self._check_path()
         f = self._file if not self.closed else h5py.File(self.path, 'a')
         
         try:
