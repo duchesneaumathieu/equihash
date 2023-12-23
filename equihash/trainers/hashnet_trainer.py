@@ -42,7 +42,7 @@ class HashNetTrainer:
     def __init__(self, net, loader, alpha=None,
                  beta_scheduler_kwargs={
                      'init': 1.0,
-                     'gamma':0.005, 
+                     'gamma':0.005,
                      'power':0.5,
                      'step_size':200},
                  optim_class='Adam', optim_kwargs={'lr': 0.001},
@@ -68,7 +68,7 @@ class HashNetTrainer:
             self.net.train()
             self.net.zero_grad()
             for _ in range(self.nb_batch_per_step):
-                x, s = self.loader.batch()
+                x, s = self.loader.mixed_pairs_batch()
                 out = self.net(x)
                 sat = saturation_ratio(out.detach(), threshold=9)
                 self.training_log.saturation_ratios.append(sat)

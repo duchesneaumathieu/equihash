@@ -16,10 +16,10 @@ def load_state(path, config, net, trainer, train_results, valid_results, force=F
         
     net.load_state_dict(state['net'])
     trainer.load_state_dict(state['trainer'])
-    train_results.__dict__ = state['train_results']
-    valid_results.__dict__ = state['valid_results']
-    torch.set_rng_state(state['cpu_rng'])
-    torch.cuda.set_rng_state(state['gpu_rng'])
+    train_results.load_state_dict(state['train_results'])
+    valid_results.load_state_dict(state['valid_results'])
+    #torch.set_rng_state(state['cpu_rng'])
+    #torch.cuda.set_rng_state(state['gpu_rng'])
     return state['config']
 
 def save_state(path, config, net, trainer, train_results, valid_results):
@@ -28,9 +28,9 @@ def save_state(path, config, net, trainer, train_results, valid_results):
     state = {'config': config,
              'net': net.state_dict(),
              'trainer': trainer.state_dict(),
-             'train_results': train_results.__dict__,
-             'valid_results': valid_results.__dict__,
-             'cpu_rng': torch.get_rng_state(),
-             'gpu_rng': torch.cuda.get_rng_state()
+             'train_results': train_results.state_dict(),
+             'valid_results': valid_results.state_dict(),
+             #'cpu_rng': torch.get_rng_state(),
+             #'gpu_rng': torch.cuda.get_rng_state()
             }
     torch.save(state, path)

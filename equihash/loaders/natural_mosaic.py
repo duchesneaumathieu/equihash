@@ -1,6 +1,6 @@
 import torch, h5py
 import numpy as np
-from .mosaic_loader import MosaicLoader
+from .abstractloader import AbstractMosaicLoader
 
 def torch_uniform(minimum, maximum, shape, *args, **kwargs):
     delta = maximum - minimum
@@ -121,7 +121,7 @@ class ImageDistortion(object):
         perlin = self.sample_perlin_noise(2*n, generator).view(n,2,h,w).permute(0,2,3,1)
         return self.spacial_distortion(images, global_noise.view(n,1,1,1)*perlin)
 
-class NaturalMosaic(MosaicLoader):
+class NaturalMosaic(AbstractMosaicLoader):
     def __init__(self, images_path, perlin_path,
                  size=None, which='train', device='cpu', seed=None,
                  nb_images=2**16, perlin_limit=None):
