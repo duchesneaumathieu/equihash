@@ -1,10 +1,8 @@
 import torch
 import numpy as np
-from scipy.special import comb
-from itertools import combinations
+from equihash.utils import iterslice
 from equihash.utils.more_torch import torch_lse, torch_logsumexp
 log_sigmoid = torch.nn.LogSigmoid()
-
 
 def unique_slice(tuples, start=None, end=None, step=None):
     unique = set()
@@ -17,6 +15,13 @@ def inverted_getitem(tuples):
 def sub_index(tuples, sub_tuples, start=None, end=None, step=None):
     inv = inverted_getitem(sub_tuples)
     return [inv[t[start:end:step]] for t in tuples]
+
+def raise_when_variant_lengths(items):
+    min_length = min(map(len, items))
+    max_length = max(map(len, items))
+    if min_length != max_length:
+        raise ValueError(f'All items must be the same size, found sizes ranging from {min_length} to {max_length}.')
+    return min_length
 
 class PartialOuterProduct:
     def __init__(self, subsets, operator=torch.mul):
@@ -41,26 +46,28 @@ class PartialOuterProduct:
         Anyway, the computation will be more efficient if many subsets share the same start.
         """
         subsets = list(subsets)
-        min_k = min(map(len, subsets))
-        max_k = max(map(len, subsets))
-        if min_k != max_k:
-            raise ValueError(f'All subsets must be the same size, found sizes ranging from {min_k} to {max_k}.')
+        if not subsets:
+            raise ValueError('No subset provided.')
         
-        self.k = min_k
+        self.k = raise_when_variant_lengths(subsets)
         self.subsets = subsets
         self.operator = operator
         
-        
-        head_tuples = unique_slice(subsets, start=0, end=2)
-        self.head_indexes = {2: torch.tensor([s[0] for s in head_tuples])}
-        self.tail_indexes = {2: torch.tensor([s[1] for s in head_tuples])}
-        self.build_order = {2: head_tuples}
+        if self.k == 0:
+            raise ValueError('Empty subsets.')
+        elif self.k == 1:
+            self.indexes = torch.tensor([s[0] for s in subsets])
+        else:
+            head_tuples = unique_slice(subsets, start=0, end=2)
+            self.head_indexes = {2: torch.tensor([s[0] for s in head_tuples])}
+            self.tail_indexes = {2: torch.tensor([s[1] for s in head_tuples])}
+            self.build_order = {2: head_tuples}
 
-        for i in range(3, self.k+1):
-            new_head_tuples = unique_slice(subsets, start=0, end=i)
-            self.head_indexes[i] = torch.tensor(sub_index(new_head_tuples, head_tuples, start=0, end=i-1))
-            self.tail_indexes[i] = torch.tensor([s[i-1] for s in new_head_tuples])
-            self.build_order[i] = head_tuples = new_head_tuples
+            for i in range(3, self.k+1):
+                new_head_tuples = unique_slice(subsets, start=0, end=i)
+                self.head_indexes[i] = torch.tensor(sub_index(new_head_tuples, head_tuples, start=0, end=i-1))
+                self.tail_indexes[i] = torch.tensor([s[i-1] for s in new_head_tuples])
+                self.build_order[i] = head_tuples = new_head_tuples
         
     def __call__(self, vectors):
         """
@@ -74,6 +81,8 @@ class PartialOuterProduct:
             outer[..., i, j_1*d**(k-1) + j_2*d**(k-2) + ... + j_k] = vectors[..., a_1, j_1]*...*vectors[..., a_k, j_k]
             with (a_1, a_2, ..., a_k) = subsets[i] and N = len(subsets)
         """
+        if self.k == 1:
+            return vectors[:, self.indexes]
         prev = vectors
         *sh, n, d = vectors.shape
         for i in range(2, self.k+1):
@@ -82,17 +91,6 @@ class PartialOuterProduct:
             prev = self.operator(prev[..., head_index, :, None], vectors[..., tail_index, None, :])
             prev = prev.view(*sh, len(self.build_order[i]), d**i)
         return prev
-
-def iterslice(start=0, stop=None, slice_size=None):
-    stop = float('inf') if stop is None else stop
-    slice_size = stop-start if slice_size is None else slice_size
-    if slice_size <= 0: raise ValueError('slice_size <= 0')
-    
-    while True:
-        if stop <= start: return
-        new_start = min(start + slice_size, stop)
-        yield start, new_start
-        start = new_start
         
 def entropy_from_log_probabilities(log_p):
     # entropy taken along the last dim (i.e., p.exp().sum(dim=-1) must be 1)
@@ -157,3 +155,113 @@ class BernoulliCombinations:
     def average_distributions_entropy(self, logits, batch_size=None):
         average_log_distributions = self.log_average_distributions(logits, batch_size=batch_size)
         return entropy_from_log_probabilities(average_log_distributions)
+    
+def yield_sub_tuple(t):
+    #e.g. (1,2,3,4) yields (1, (2,3,4)), (2, (1,3,4)), (3, (1,2,4)), (4, (1,2,3))
+    for i, j in enumerate(t):
+        yield j, t[:i]+t[i+1:]
+
+def unique_subtuples(tuples):
+    unique = set()
+    tuples = [subtup for tup in tuples for _, subtup in yield_sub_tuple(tup)]
+    return [t for t in tuples if t not in unique and unique.add(t) is None]
+
+def _build_relevant_sub_tuples_index(tuples, sub_tuples):
+    #Returns a dict that maps bit_index to list of sub_tuple_index
+    ii = {t:n for n, t in enumerate(sub_tuples)}
+    relevant_sub_tuple_index = dict()
+    for tup in tuples:
+        for bit_index, relevant_sub_tuple in yield_sub_tuple(tup):
+            if bit_index in relevant_sub_tuple_index:
+                relevant_sub_tuple_index[bit_index].append(ii[relevant_sub_tuple])
+            else: relevant_sub_tuple_index[bit_index] = [ii[relevant_sub_tuple]]
+    return {i:torch.tensor(index) for i, index in relevant_sub_tuple_index.items()}
+
+class TuplesEntropyGradient:
+    def __init__(self, tuples):
+        self.tuples = [tuple(t) for t in tuples]
+        self.tuples_size = raise_when_variant_lengths(tuples)
+        self.sub_tuples = unique_subtuples(tuples)
+        self.relevant_sub_tuples_index = _build_relevant_sub_tuples_index(tuples, self.sub_tuples)
+        if self.tuples_size == 1:
+            raise NotImplementedError(f'tuples_size must be greater than one (got {self.tuples_size}).')
+        self.bernoulli_combinations = BernoulliCombinations(self.sub_tuples)
+        self.bits_combinations = BitsCombinations(self.sub_tuples)
+        
+    def compute_conditional_logits(self, logits, batch_size=None):
+        log_p0, log_p1 = log_sigmoid(-logits), log_sigmoid(logits)
+        
+        #init cumulatives
+        log_positives_joint_cumuls = dict()
+        log_negatives_joint_cumuls = dict()
+        
+        #each batch adds to the cumulatives
+        for batch_id, (beg, end) in enumerate(iterslice(stop=len(logits), slice_size=batch_size)):
+            batch = logits[beg:end]
+            log_sub_joint_dists= self.bernoulli_combinations.log_distributions(batch)
+            for i, index in self.relevant_sub_tuples_index.items():
+                log_sub_joint_dists_i = log_sub_joint_dists[:, index] #shape = (bs, len(index), 2**(self.tuples_size-1))
+                log_positives_joint_cumuls_batch = torch_lse(log_p1[beg:end,i,None,None] + log_sub_joint_dists_i, dim=0)
+                log_negatives_joint_cumuls_batch = torch_lse(log_p0[beg:end,i,None,None] + log_sub_joint_dists_i, dim=0)
+                if batch_id==0:
+                    log_positives_joint_cumuls[i] = log_positives_joint_cumuls_batch
+                    log_negatives_joint_cumuls[i] = log_negatives_joint_cumuls_batch
+                    continue
+                log_positives_joint_cumuls[i] = torch_logsumexp(log_positives_joint_cumuls[i], log_positives_joint_cumuls_batch)
+                log_negatives_joint_cumuls[i] = torch_logsumexp(log_negatives_joint_cumuls[i], log_negatives_joint_cumuls_batch)
+                
+        #finalize
+        conditional_logits = dict()
+        for i, index in self.relevant_sub_tuples_index.items():
+            #the log(len(logits)) cancels out so no need to normalize
+            conditional_logits[i] = log_positives_joint_cumuls[i] - log_negatives_joint_cumuls[i] 
+        return conditional_logits
+        
+    def compute_discrete_conditional_logits(self, logits, batch_size=None, prior=1.):
+        codes = 0 < logits
+        N, n = codes.shape
+        prior = float(prior)
+        
+        #init cumulatives
+        positives_joint_cumulatives = dict()
+        negatives_joint_cumulatives = dict()
+        for i, index in self.relevant_sub_tuples_index.items():
+            shape = (len(index), 2**(self.tuples_size-1))
+            positives_joint_cumulatives[i] = torch.zeros(shape, device=logits.device, dtype=logits.dtype)
+            negatives_joint_cumulatives[i] = torch.zeros(shape, device=logits.device, dtype=logits.dtype)
+        
+        #each batch adds to the cumulatives
+        for beg, end in iterslice(stop=N, slice_size=batch_size):
+            batch = codes[beg:end]
+            sub_joint_dists = self.bits_combinations.distributions(batch)
+            for i, index in self.relevant_sub_tuples_index.items():
+                sub_joint_dists_i = sub_joint_dists[:, index] #shape = (bs, len(index), 2**(self.tuples_size-1))
+                positives_joint_cumulatives[i] += torch.logical_and(batch[:,i,None,None], sub_joint_dists_i).sum(dim=0)
+                negatives_joint_cumulatives[i] += torch.logical_and(~batch[:,i,None,None], sub_joint_dists_i).sum(dim=0)
+        
+        #finalize
+        conditional_logits = dict()
+        denominator = len(logits) + prior*2**self.tuples_size
+        for i, index in self.relevant_sub_tuples_index.items():
+            pos_dist = (positives_joint_cumulatives[i] + prior) / denominator
+            neg_dist = (negatives_joint_cumulatives[i] + prior) / denominator
+            conditional_logits[i] = pos_dist.log() - neg_dist.log()
+        return conditional_logits
+    
+    def negative_logits_gradient(self, logits, batch_size=None, pseudo_grad=False, prior=1.):
+        prob_grad = torch.zeros_like(logits)
+        if pseudo_grad:
+            conditional_logits = self.compute_discrete_conditional_logits(logits, batch_size=batch_size, prior=prior)
+        else:
+            conditional_logits = self.compute_conditional_logits(logits, batch_size=batch_size)
+        
+        for beg, end in iterslice(stop=len(logits), slice_size=batch_size):
+            batch = logits[beg:end]
+            sub_joint_dists = self.bernoulli_combinations.distributions(batch)
+            for i, index in self.relevant_sub_tuples_index.items():
+                sub_joint_dists_i = sub_joint_dists[:, index]
+                prob_grad[beg:end, i] = (sub_joint_dists_i*conditional_logits[i]).sum(dim=(1,2))
+        
+        sigmoid_grad = log_sigmoid(-logits).exp() * log_sigmoid(logits).exp()
+        logits_grad = prob_grad * sigmoid_grad / len(logits)
+        return logits_grad

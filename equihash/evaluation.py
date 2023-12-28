@@ -2,6 +2,8 @@ import torch
 import numpy as np
 from typing import List, Dict
 from dataclasses import dataclass, field
+from .losses.entropy import BitsCombinations
+from .utils import covering_random_combinations
 
 def number_of_buckets(codes):
     d = dict()
@@ -47,16 +49,16 @@ class QuickResult:
         return ' - '.join([rp, we, m, u])
     
 class QuickResults:
-    def __init__(self, net, loader, batch_size, nb_documents, seed,
-                 entropy_tuple_sizes=[1,2,3,4], max_nb_entropy_tuples=10_000):
+    def __init__(self, net, loader, batch_size, nb_documents, seed, entropy_tuple_sizes=[1,2,3,4]):
         self.which = loader.which
         self.net = net
         self.loader = loader
         self.batch_size = batch_size
         self.nb_documents = nb_documents
         self.seed = seed
-        self.entropy_tuple_sizes = entropy_tuple_sizes
-        self.max_nb_entropy_tuples = max_nb_entropy_tuples
+        rng = np.random.RandomState(seed)
+        tuples = {s:covering_random_combinations(net.k, k=s, cover_k=min(s,2), rng=rng) for s in entropy_tuple_sizes}
+        self.bits_combinations = {s:BitsCombinations(t) for s, t in tuples.items()}
         self.hinge_triplet_labels = self.sample_hinge_triplet_labels()
         self.results = dict()
         
@@ -98,7 +100,10 @@ class QuickResults:
         no_replacement_codes = torch.cat([codes[:,0], codes[:,2]], axis=0)
         nb_unique_codes = number_of_buckets(no_replacement_codes)
         
-        #insert worst entropies code here
+        worst_entropie = dict()
+        for s, bc in self.bits_combinations.items():
+            worst_entropie[s] = float(bc.average_distributions_entropy(no_replacement_codes, batch_size=1024).min())
+            worst_entropie[s] = max(0., worst_entropie[s]) #(eliminate -0.00 in prints)
         
         return QuickResult(
             nb_pairs=len(logits),
@@ -108,7 +113,7 @@ class QuickResults:
             negative_hamming_distances_median=neg_hd_median,
             nb_codes=len(no_replacement_codes),
             nb_unique_codes=nb_unique_codes,
-            worst_entropies={1:1, 2:2, 3:3, 4:4},
+            worst_entropies=worst_entropie,
         )
     
     def evaluate(self, step):

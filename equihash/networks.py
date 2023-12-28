@@ -46,6 +46,7 @@ class MnistResNet(ResNet):
 class MnistMosaicCNN(nn.Module):
     def __init__(self, k=10, batch_norm=True):
         super().__init__()
+        self.k = k
         self.conv1 = nn.Conv2d(1, 24, 5, 1, 0)
         self.conv2 = nn.Conv2d(24, 32, 3, 1, 0)
         self.conv3 = nn.Conv2d(32, 48, 3, 1, 1)

@@ -1,9 +1,34 @@
 import math, torch
 import numpy as np
 from datetime import datetime
+from itertools import combinations
 
 def timestamp(s, strf='%Y-%m-%d %H:%M:%S'):
     return f'[{datetime.now().strftime(strf)}] {s}'
+
+def iterslice(start=0, stop=None, slice_size=None):
+    stop = float('inf') if stop is None else stop
+    slice_size = stop-start if slice_size is None else slice_size
+    if slice_size <= 0: raise ValueError('slice_size <= 0')
+    
+    while True:
+        if stop <= start: return
+        new_start = min(start + slice_size, stop)
+        yield start, new_start
+        start = new_start
+        
+def covering_random_combinations(n, k, cover_k, rng=np.random):
+    combs = list()
+    seen_combs = set()
+    for sub_comb in combinations(range(n), cover_k):
+        while True: #rejection sampling
+            comb = sub_comb + tuple(rng.randint(0, n, k-cover_k))
+            comb = tuple(sorted(comb))
+            if len(set(comb))==k and comb not in seen_combs:
+                combs.append(comb)
+                seen_combs.add(comb)
+                break
+    return sorted(combs)
 
 def get_significand(v, base=10):
     p = 1
