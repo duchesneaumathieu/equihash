@@ -59,18 +59,18 @@ class QuickResults:
         rng = np.random.RandomState(seed)
         tuples = {s:covering_random_combinations(net.k, k=s, cover_k=min(s,2), rng=rng) for s in entropy_tuple_sizes}
         self.bits_combinations = {s:BitsCombinations(t) for s, t in tuples.items()}
-        self.hinge_triplet_labels = self.sample_hinge_triplet_labels()
+        self.negative_labels = self.sample_negative_labels()
         self.results = dict()
         
     def __getitem__(self, step):
         return self.results[step]
     
-    def sample_hinge_triplet_labels(self):
+    def sample_negative_labels(self):
         running_loader_state = self.loader.get_state()
         self.loader.manual_seed(self.seed)
-        hinge_triplet_labels =  self.loader.labels_generator.generate_hinge_triplet(self.nb_documents, replacement=False)
+        negative_labels = self.loader.generate_negative_labels(self.nb_documents, 2, replacement=False)
         self.loader.set_state(running_loader_state)
-        return hinge_triplet_labels
+        return negative_labels
     
     def compute_logits(self):
         N, B = self.nb_documents, self.batch_size
@@ -79,8 +79,8 @@ class QuickResults:
             logits = list()
             for i in range(nb_batch):
                 a, b = i*B, min(N, (i+1)*B)
-                labels = self.hinge_triplet_labels[a:b]
-                batch = self.loader.batch_from_labels(labels)
+                labels = self.negative_labels[a:b]
+                batch = self.loader.hinge_triplets_batch_from_negative_labels(labels)
                 logits.append(self.net(batch))
             logits = torch.cat(logits, dim=0)
         return logits

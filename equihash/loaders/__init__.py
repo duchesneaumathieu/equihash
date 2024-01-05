@@ -1,2 +1,3 @@
 from .mnist import MnistMosaic
-from .natural_mosaic import NaturalMosaic
+from .digiface import DigiFace, DigiFaceMosaic
+from .noisy_open_images import NoisyOpenImages, NoisyOpenImagesMosaic

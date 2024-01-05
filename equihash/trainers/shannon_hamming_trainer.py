@@ -1,22 +1,18 @@
 import torch
+import numpy as np
 from itertools import combinations
 from collections import defaultdict
 
 from typing import List, Tuple, Dict
 from dataclasses import dataclass, field
 
-from equihash.losses import BernoulliCombinations
-from equihash.utils import ValueGradClipper
+from equihash.losses.entropy import TuplesEntropyGradient
+from equihash.losses.regularization import HuberLoss
+from equihash.utils import ValueGradClipper, covering_random_combinations
 from equihash.evaluation import saturation_ratio
-from equihash.utils.more_torch import torch_lse, torch_logsumexp
+from equihash.utils.more_torch import torch_lse, torch_logsumexp, torch_invperm
 log_sigmoid = torch.nn.LogSigmoid()
 
-
-def unique_list(seq):
-    #https://stackoverflow.com/questions/480214/how-do-i-remove-duplicates-from-a-list-while-preserving-order
-    seen = set()
-    seen_add = seen.add
-    return [x for x in seq if not (x in seen or seen_add(x))]
 
 def multi_bernoulli_equality(xz, yz):
     """
@@ -48,85 +44,120 @@ def multi_bernoulli_equality(xz, yz):
 
 @dataclass
 class TrainingLog:
-    steps: List[float] = field(default_factory=list)
-    avg_shannon_gradient: Dict[Tuple[int, int], List[float]] = field(default_factory=lambda: defaultdict(list))
-    avg_hamming_gradient: List[float] = field(default_factory=list)
-    max_saturation_ratio: List[float] = field(default_factory=list)
-    max_clipping_ratio: List[float] = field(default_factory=list)
-    avg_shannon_gradients: Dict[Tuple[int, int], List[float]] = field(default_factory=lambda: defaultdict(list))
-    avg_hamming_gradients: List[float] = field(default_factory=list)
+    max_clipping_ratio: float
+    max_saturation_ratio: float
+    shannon_gradient_maximum_norm_quantiles: List[float]
+    hamming_gradient_maximum_norm_quantiles: List[float]
+    huber_gradient_maximum_norm_quantiles: List[float]
+    
+    def __repr__(self):
+        sq = ','.join([f'{q:.4f}' for q in self.shannon_gradient_maximum_norm_quantiles])
+        hq = ','.join([f'{q:.4f}' for q in self.hamming_gradient_maximum_norm_quantiles])
+        uq = ','.join([f'{q:.4f}' for q in self.huber_gradient_maximum_norm_quantiles])
+        return (f'max_saturation:{100*self.max_saturation_ratio:.4f}% - '
+                f'max_clipping:{100*self.max_clipping_ratio:.4f}% - '
+                f'shannon_grad_quantiles:[{sq}] - '
+                f'hamming_grad_quantiles:[{hq}] - '
+                f'huber_grad_mquantiles:[{uq}]')
+    
+@dataclass
+class TrainingLogs:
     saturation_ratios: List[float] = field(default_factory=list)
     clipping_ratios: List[float] = field(default_factory=list)
+    shannon_gradient_maximum_norms: List[float] = field(default_factory=list)
+    hamming_gradient_maximum_norms: List[float] = field(default_factory=list)
+    huber_gradient_maximum_norms: List[float] = field(default_factory=list)
+    logs: Dict[int, TrainingLog] = field(default_factory=dict)
         
-    def aggregate(self, step):
-        self.steps.append(step)
-        for k, v in self.avg_shannon_gradients.items():
-            mean = sum(v)/len(v)
-            self.avg_shannon_gradient[k].append(mean)
-        self.avg_hamming_gradient.append(sum(self.avg_hamming_gradients)/len(self.avg_hamming_gradients))
-        self.max_saturation_ratio.append(max(self.saturation_ratios))
-        self.max_clipping_ratio.append(max(self.clipping_ratios))
-        self.reset()
+    def reset(self):
+        self.saturation_ratios.clear()
+        self.clipping_ratios.clear()
+        self.shannon_gradient_maximum_norms.clear()
+        self.hamming_gradient_maximum_norms.clear()
+        self.huber_gradient_maximum_norms.clear()
         return self
     
-    def reset(self):
-        self.avg_shannon_gradients = defaultdict(list)
-        self.avg_hamming_gradients = list()
-        self.saturation_ratios = list()
-        self.clipping_ratios = list()
+    def aggregate(self, step):
+        nans_quantiles = 5*[float('nan')]
+        sm = self.shannon_gradient_maximum_norms
+        hm = self.hamming_gradient_maximum_norms
+        um = self.huber_gradient_maximum_norms
+        log = TrainingLog(
+            max_saturation_ratio=max(self.saturation_ratios) if self.saturation_ratios else float('nan'),
+            max_clipping_ratio=max(self.clipping_ratios) if self.clipping_ratios else float('nan'),
+            shannon_gradient_maximum_norm_quantiles=np.quantile(sm, [0, .05, .5, .95, 1]).tolist() if sm else nans_quantiles,
+            hamming_gradient_maximum_norm_quantiles=np.quantile(hm, [0, .05, .5, .95, 1]).tolist() if hm else nans_quantiles,
+            huber_gradient_maximum_norm_quantiles=np.quantile(um, [0, .05, .5, .95, 1]).tolist() if um else nans_quantiles,
+        )
+        self.logs[step] = log
+        self.reset()
+        return log
+    
+    def state_dict(self):
+        return {step:log.__dict__ for step, log in self.logs.items()}
+    
+    def load_state_dict(self, state):
+        for step, log in state.items():
+            self.logs[step] = TrainingLog(**log)
         return self
-        
-    def describe(self, k):
-        s = ', '.join([f'shannon_grad_{n}c{m}={v[k]:.8f}' for (n,m),v in self.avg_shannon_gradient.items()])
-        return (f'step={self.steps[k]}: '
-                f'{s}, '
-                f'hamming_grad={self.avg_hamming_gradient[k]:.8f}, '
-                f'max_saturation={100*self.max_saturation_ratio[k]:.4f}%, '
-                f'max_clipping={100*self.max_clipping_ratio[k]:.4f}%')
+    
+    def describe(self, step):
+        return f'step:{step} - {self.logs[step]}'
 
 class ShannonHammingTrainer:
     def __init__(self, net, loader,
-                 hamming_lambda, shannon_params, striding=True,
-                 shannon_batch_size=None,
+                 shannon_lambda, hamming_lambda,
+                 shannon_gradient_kwargs = {
+                     'batch_size': 512,
+                     'gradient_type': 'normal',
+                     'prior': 1.,
+                 },
+                 shannon_tuple_size=3,
+                 shannon_tuple_cover_size=None,
+                 shannon_shuffle_logits=False,
+                 huber_loss_kwargs = {
+                     "maximum_slope": 0.0,
+                     "branching_point": 9.0,
+                 },
                  optim_class='Adam', optim_kwargs={'lr': 0.001},
                  clip_value=1, nb_batch_per_step=1):
-        #shannon_params: List[Tuple[int, int, float]]
-        #i.e., shannon_params is a list a triplet (n, k, lambda)
+        shannon_tuple_cover_size = shannon_tuple_size if shannon_tuple_cover_size is None else shannon_tuple_cover_size
+        
         self.step = 0
         self.net = net
         self.loader = loader
-        self.training_log = TrainingLog()
+        self.training_log = TrainingLogs()
         self.nb_batch_per_step = nb_batch_per_step
         self.optim = torch.optim.__dict__[optim_class](net.parameters(), **optim_kwargs)
         self.grad_clipper = ValueGradClipper(net.parameters(), clip_value)
         
-        self.nbits = net.k
-        self.striding = striding
+        self.shannon_lambda = shannon_lambda
         self.hamming_lambda = hamming_lambda
-        self.shannon_params = shannon_params
-        self.shannon_batch_size = shannon_batch_size
-        self.shannon_combinations = {(n,k):self.get_bernoulli_combinations(n, k) for n, k, l in shannon_params}
+        self.huber_loss = HuberLoss(**huber_loss_kwargs)
+        self.shannon_shuffle_logits = shannon_shuffle_logits
+        tuples = covering_random_combinations(n=self.nbits, k=shannon_tuple_size, cover_k=shannon_tuple_cover_size)
+        self.shannon_tuple_gradient = TuplesEntropyGradient(tuples, **shannon_gradient_kwargs)
         
-    def get_bernoulli_combinations(self, n, k):
-        if self.nbits % n != 0:
-            raise ValueError(f'{n} must divide the number of bits ({self.nbits})')
-
-        ratio = self.nbits // n
-        aligned_groups = [list(range(i*n, (i+1)*n)) for i in range(ratio)]
-        strided_groups = [list(range(i, self.nbits, ratio)) for i in range(ratio)]
-        all_groups = aligned_groups+strided_groups if self.striding else aligned_groups
-        combs = sum([list(combinations(p, k)) for p in all_groups], [])
-        return BernoulliCombinations(unique_list(combs))
+    @property
+    def nbits(self):
+        return self.net.k
         
-    def shannon_grad_wrt_logits(self, logits, shannon_lambda, shannon_combination):
-        #logits.shape = (n, 2, nbits)
+    def shannon_grad_wrt_logits(self, logits):
         logits = logits.detach()
-        logits.requires_grad = True
-        logits_view = logits.view(-1, self.nbits)
-        ent = shannon_combination.average_distributions_entropy(logits_view, batch_size=self.shannon_batch_size)
-        shannon_loss = -shannon_lambda*ent.sum()
-        shannon_loss.backward()
-        return logits.grad
+        n, _, nbits = logits.shape #logits.shape = (n, 2, nbits)
+        logits_view = logits.view(2*n, nbits)
+        
+        if self.shannon_shuffle_logits:
+            #using loader.numpy_generator to avoid managing another rng
+            perm = torch.tensor(self.loader.numpy_generator.permutation(nbits))
+            logits_view = logits_view[:, perm]
+            
+        logits_view_grad = self.shannon_tuple_gradient.negative_logits_gradient(logits_view)
+        
+        if self.shannon_shuffle_logits:
+            logits_view_grad = logits_view_grad[:, torch_invperm(perm)]
+            
+        return self.shannon_lambda * logits_view_grad.view(n, 2, nbits)
         
     def hamming_grad_wrt_logits(self, logits):
         #logits.shape = (n, 2, nbits)
@@ -137,12 +168,20 @@ class ShannonHammingTrainer:
         hamming_loss.backward()
         return logits.grad
     
+    def huber_grad_wrt_logits(self, logits):
+        #logits.shape = (n, 2, nbits)
+        logits = logits.detach()
+        logits.requires_grad = True
+        huber_loss = self.huber_loss(logits).sum(dim=2).mean()
+        huber_loss.backward()
+        return logits.grad
+    
     def compute_logits(self):
         batches = list()
         logits = list()
         with torch.no_grad():
             for _ in range(self.nb_batch_per_step):
-                x = self.loader.positive_batch()
+                x = self.loader.positive_pairs_batch()
                 out = self.net(x)
                 sat = saturation_ratio(out.detach(), threshold=9)
                 self.training_log.saturation_ratios.append(sat)
@@ -157,12 +196,14 @@ class ShannonHammingTrainer:
             self.net.zero_grad()
             batches, logits = self.compute_logits()
             
-            logits_grad = self.hamming_grad_wrt_logits(logits)
-            self.training_log.avg_hamming_gradients.append(float(logits_grad.abs().mean()))
-            for n, k, shannon_lambda in self.shannon_params:
-                shannon_grad = self.shannon_grad_wrt_logits(logits, shannon_lambda, self.shannon_combinations[(n,k)])
-                self.training_log.avg_shannon_gradients[(n,k)].append(float(shannon_grad.abs().mean()))
-                logits_grad += shannon_grad
+            shannon_grad = self.shannon_grad_wrt_logits(logits)
+            hamming_grad = self.hamming_grad_wrt_logits(logits)
+            huber_grad = self.huber_grad_wrt_logits(logits)
+            logits_grad = shannon_grad + hamming_grad + huber_grad
+            
+            self.training_log.shannon_gradient_maximum_norms.append(float(shannon_grad.abs().sum(dim=(1,2)).mean()))
+            self.training_log.hamming_gradient_maximum_norms.append(float(hamming_grad.abs().sum(dim=(1,2)).mean()))
+            self.training_log.huber_gradient_maximum_norms.append(float(huber_grad.abs().sum(dim=(1,2)).mean()))
                 
             i = 0
             for x in batches:
@@ -184,12 +225,12 @@ class ShannonHammingTrainer:
         state = {'step': self.step,
                  'loader': self.loader.get_state(),
                  'optim': self.optim.state_dict(),
-                 'training_log': self.training_log.__dict__}
+                 'training_log': self.training_log.state_dict()}
         return state
     
     def load_state_dict(self, state):
         self.step = state['step']
         self.loader.set_state(state['loader'])
         self.optim.load_state_dict(state['optim'])
-        self.training_log.__dict__ = state['training_log']
+        self.training_log.load_state_dict(state['training_log'])
         return self

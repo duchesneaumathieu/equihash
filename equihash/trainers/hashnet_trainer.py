@@ -4,20 +4,32 @@ from equihash.utils import PolynomialStepScheduler, ValueGradClipper
 from equihash.evaluation import saturation_ratio
 softplus = torch.nn.Softplus()
 
-from typing import List
+from typing import List, Dict
 from dataclasses import dataclass, field
 
 @dataclass
-class TrainingLog: #that is really bad
-    steps: List[float] = field(default_factory=list)
-    betas: List[float] = field(default_factory=list)
-    avg_loss: List[float] = field(default_factory=list)
-    max_saturation_ratio: List[float] = field(default_factory=list)
-    max_clipping_ratio: List[float] = field(default_factory=list)
-    positive_pairs_grad_quantiles: List[int] = field(default_factory=list)
-    negative_pairs_grad_quantiles: List[int] = field(default_factory=list)
-    positive_dots_histogram: List[int] = field(default_factory=list)
-    negative_dots_histogram: List[int] = field(default_factory=list)
+class TrainingLog:
+    beta: float
+    avg_loss: float
+    max_saturation_ratio: float
+    max_clipping_ratio: float
+    positive_pairs_grad_quantiles: List[float] = field(default_factory=list)
+    negative_pairs_grad_quantiles: List[float] = field(default_factory=list)
+    positive_pairs_dots_histogram: List[int] = field(default_factory=list)
+    negative_pairs_dots_histogram: List[int] = field(default_factory=list)
+        
+    def __repr__(self):
+        pq = ','.join([f'{q:.4f}' for q in self.positive_pairs_grad_quantiles])
+        nq = ','.join([f'{q:.4f}' for q in self.negative_pairs_grad_quantiles])
+        return (f'beta:{self.beta:.4f} - '
+                f'avg_loss:{self.avg_loss:.4f} - '
+                f'max_saturation:{100*self.max_saturation_ratio:.4f}% - '
+                f'max_clipping:{100*self.max_clipping_ratio:.4f}% - '
+                f'positive_grad_quantiles:[{pq}] - '
+                f'negative_grad_quantiles:[{nq}]')
+
+@dataclass
+class TrainingLogs:
     losses: List[float] = field(default_factory=list)
     saturation_ratios: List[float] = field(default_factory=list)
     clipping_ratios: List[float] = field(default_factory=list)
@@ -25,43 +37,47 @@ class TrainingLog: #that is really bad
     negative_pairs_grads: List[float] = field(default_factory=list)
     positive_dots_histograms: List[List[int]] = field(default_factory=list)
     negative_dots_histograms: List[List[int]] = field(default_factory=list)
+    logs: Dict[int, TrainingLog] = field(default_factory=dict)
         
-    def aggregate(self, step, beta):
-        self.steps.append(step)
-        self.betas.append(beta)
-        self.avg_loss.append(sum(self.losses)/len(self.losses) if self.losses else None)
-        self.max_saturation_ratio.append(max(self.saturation_ratios) if self.saturation_ratios else None)
-        self.max_clipping_ratio.append(max(self.clipping_ratios) if self.clipping_ratios else None)
-        pg = self.positive_pairs_grads
-        ng = self.negative_pairs_grads
-        self.positive_pairs_grad_quantiles.append(np.quantile(pg, [0, .05, .5, .95, 1]).tolist() if pg else None)
-        self.negative_pairs_grad_quantiles.append(np.quantile(ng, [0, .05, .5, .95, 1]).tolist() if ng else None)
-        ph = self.positive_dots_histograms
-        nh = self.negative_dots_histograms
-        self.positive_dots_histogram.append(np.array(ph).sum(axis=1) if ph else None)
-        self.negative_dots_histogram.append(np.array(nh).sum(axis=1) if nh else None)
-        self.reset()
+    def reset(self):
+        self.losses.clear()
+        self.saturation_ratios.clear()
+        self.clipping_ratios.clear()
+        self.positive_pairs_grads.clear()
+        self.negative_pairs_grads.clear()
+        self.positive_dots_histograms.clear()
+        self.negative_dots_histograms.clear()
         return self
     
-    def reset(self):
-        self.losses = list()
-        self.saturation_ratios = list()
-        self.clipping_ratios = list()
-        self.positive_dots_histograms = list()
-        self.negative_dots_histograms = list()
-        self.positive_pairs_grads = list()
-        self.negative_pairs_grads = list()
+    def aggregate(self, step, beta):
+        pg = self.positive_pairs_grads
+        ng = self.negative_pairs_grads
+        ph = self.positive_dots_histograms
+        nh = self.negative_dots_histograms
+        log = TrainingLog(
+            beta=beta,
+            avg_loss=float(np.mean(self.losses)) if self.losses else float('nan'),
+            max_saturation_ratio=max(self.saturation_ratios) if self.saturation_ratios else float('nan'),
+            max_clipping_ratio=max(self.clipping_ratios) if self.clipping_ratios else float('nan'),
+            positive_pairs_grad_quantiles=np.quantile(pg, [0, .05, .5, .95, 1]).tolist() if pg else None,
+            negative_pairs_grad_quantiles=np.quantile(ng, [0, .05, .5, .95, 1]).tolist() if ng else None,
+            positive_pairs_dots_histogram=np.array(ph).sum(axis=1).tolist() if ph else None,
+            negative_pairs_dots_histogram=np.array(nh).sum(axis=1).tolist() if nh else None,
+        )
+        self.logs[step] = log
+        self.reset()
+        return log
+    
+    def state_dict(self):
+        return {step:log.__dict__ for step, log in self.logs.items()}
+    
+    def load_state_dict(self, state):
+        for step, log in state.items():
+            self.logs[step] = TrainingLog(**log)
         return self
-        
-    def describe(self, k):
-        pq = ','.join([f'{q:.4f}' for q in self.positive_pairs_grad_quantiles[k]])
-        nq = ','.join([f'{q:.4f}' for q in self.negative_pairs_grad_quantiles[k]])
-        return (f'step={self.steps[k]} (beta={self.betas[k]:.4f}): '
-                f'avg_loss={self.avg_loss[k]:.4f}, '
-                f'max_saturation={100*self.max_saturation_ratio[k]:.4f}%, '
-                f'max_clipping={100*self.max_clipping_ratio[k]:.4f}%, '
-                f'positive_grad_quantiles: [{pq}], '
-                f'negative_grad_quantiles: [{nq}]')
+    
+    def describe(self, step):
+        return f'step:{step} - {self.logs[step]}'
 
 class HashNetTrainer:
     def __init__(self, net, loader, alpha=None,
@@ -77,7 +93,7 @@ class HashNetTrainer:
         self.loader = loader
         self.optim = torch.optim.__dict__[optim_class](net.parameters(), **optim_kwargs)
         self.nb_batch_per_step = nb_batch_per_step
-        self.training_log = TrainingLog()
+        self.training_log = TrainingLogs()
         self.alpha = 10./self.nbits if alpha is None else alpha
         self.beta_scheduler = PolynomialStepScheduler(**beta_scheduler_kwargs)
         self.grad_clipper = ValueGradClipper(net.parameters(), clip_value)
@@ -155,12 +171,12 @@ class HashNetTrainer:
         state = {'step': self.step,
                  'loader': self.loader.get_state(),
                  'optim': self.optim.state_dict(),
-                 'training_log': self.training_log.__dict__}
+                 'training_log': self.training_log.state_dict()}
         return state
     
     def load_state_dict(self, state):
         self.step = state['step']
         self.loader.set_state(state['loader'])
         self.optim.load_state_dict(state['optim'])
-        self.training_log.__dict__ = state['training_log']
+        self.training_log.load_state_dict(state['training_log'])
         return self

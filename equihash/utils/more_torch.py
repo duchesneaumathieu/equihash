@@ -2,6 +2,18 @@ import torch
 import numpy as np
 from functools import reduce
 
+log_sigmoid = torch.nn.LogSigmoid()
+def kld_loss(logits, p=0.5):
+    log_q0, log_q1 = log_sigmoid(-logits), log_sigmoid(logits)
+    loss = log_q0.exp()*(log_q0-np.log(1-p)) + log_q1.exp()*(log_q1-np.log(p))
+    return loss.sum(dim=1).mean()
+
+def torch_invperm(perm):
+    n = len(perm)
+    inv = torch.empty(n, dtype=perm.dtype, device=perm.device)
+    inv[perm] = torch.arange(n)
+    return inv
+
 def torch_maximum(*tensors):
     return reduce(torch.max, tensors)
 

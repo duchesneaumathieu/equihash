@@ -23,9 +23,10 @@ class ResNet(CustomResNet):
             
     def forward(self, x):
         #accepting arbitrary shapes
-        *shape, c, h, w = x.shape
-        out = super().forward(x.view(-1, c, h, w))
-        return out.view(*shape, -1)
+        *shape, h, w, c = x.shape
+        x = x.view(-1, h, w, c).permute(0, 3, 1, 2)
+        out = super().forward(x)
+        return out.view(*shape, self.k)
 
 class Uint8ResNet(ResNet):
     def forward(self, x):

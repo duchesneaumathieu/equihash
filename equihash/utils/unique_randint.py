@@ -187,3 +187,18 @@ def unique_randint(low, high, n, k, dtype=np.int64, rng=np.random):
         return unique_randint_with_permutation(low, high, n, k, dtype=dtype, rng=rng)
     else:
         return fast_unique_randint(low, high, n, k, dtype=dtype, rng=rng)
+    
+def uint64_to_baseN(N, k, uint64, dtype=np.uint64):
+    base = np.zeros(uint64.shape + (k,), dtype=dtype)
+    for i in range(k):
+        base[..., k-1-i] = uint64//(N**i) % N
+    return base
+
+def unique_randint_mosaic(low, high, n, k, mosaic_shape, dtype=np.int64, rng=np.random):
+    delta = high - low
+    mosaic_size = np.prod(mosaic_shape, dtype=np.int64)
+    if 64 < mosaic_size*np.log2(delta):
+        raise OverflowError('2**64 < size**index_size')
+    size = delta**mosaic_size
+    uint64_integers = unique_randint(0, size, n=n, k=k, dtype=np.uint64, rng=rng)
+    return uint64_to_baseN(delta, mosaic_size, uint64_integers, dtype=dtype).reshape(n, k, *mosaic_shape).astype(dtype) + low

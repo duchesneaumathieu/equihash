@@ -178,7 +178,14 @@ def _build_relevant_sub_tuples_index(tuples, sub_tuples):
     return {i:torch.tensor(index) for i, index in relevant_sub_tuple_index.items()}
 
 class TuplesEntropyGradient:
-    def __init__(self, tuples):
+    def __init__(self, tuples, batch_size=None, gradient_type='normal', prior=1.):
+        self.valid_gradient_types = ('normal', 'pseudo-smooth', 'straight-through')
+        if gradient_type not in self.valid_gradient_types:
+            raise ValueError(f'gradient_type must be in {self.valid_gradient_types}, got {gradient_type}')
+        self.batch_size = batch_size
+        self.gradient_type = gradient_type
+        self.prior = prior
+        
         self.tuples = [tuple(t) for t in tuples]
         self.tuples_size = raise_when_variant_lengths(tuples)
         self.sub_tuples = unique_subtuples(tuples)
@@ -189,6 +196,7 @@ class TuplesEntropyGradient:
         self.bits_combinations = BitsCombinations(self.sub_tuples)
         
     def compute_conditional_logits(self, logits, batch_size=None):
+        batch_size = self.batch_size if batch_size is None else batch_size
         log_p0, log_p1 = log_sigmoid(-logits), log_sigmoid(logits)
         
         #init cumulatives
@@ -217,7 +225,10 @@ class TuplesEntropyGradient:
             conditional_logits[i] = log_positives_joint_cumuls[i] - log_negatives_joint_cumuls[i] 
         return conditional_logits
         
-    def compute_discrete_conditional_logits(self, logits, batch_size=None, prior=1.):
+    def compute_discrete_conditional_logits(self, logits, batch_size=None, prior=None):
+        batch_size = self.batch_size if batch_size is None else batch_size
+        prior = self.prior if prior is None else prior
+        
         codes = 0 < logits
         N, n = codes.shape
         prior = float(prior)
@@ -248,12 +259,19 @@ class TuplesEntropyGradient:
             conditional_logits[i] = pos_dist.log() - neg_dist.log()
         return conditional_logits
     
-    def negative_logits_gradient(self, logits, batch_size=None, pseudo_grad=False, prior=1.):
+    def negative_logits_gradient(self, logits, batch_size=None, gradient_type=None, prior=None):
+        batch_size = self.batch_size if batch_size is None else batch_size
+        gradient_type = self.gradient_type if gradient_type is None else gradient_type
+        prior = self.prior if prior is None else prior
+        
         prob_grad = torch.zeros_like(logits)
-        if pseudo_grad:
+        if gradient_type == 'normal':
             conditional_logits = self.compute_discrete_conditional_logits(logits, batch_size=batch_size, prior=prior)
-        else:
+        elif gradient_type == 'pseudo-smooth':
             conditional_logits = self.compute_conditional_logits(logits, batch_size=batch_size)
+        elif gradient_type == 'straight-through':
+            raise NotImplementedError('gradient_type=="straight-through" is not implemented.')
+        else: raise ValueError(f'gradient_type must be in {self.valid_gradient_types}, got {gradient_type}.')
         
         for beg, end in iterslice(stop=len(logits), slice_size=batch_size):
             batch = logits[beg:end]
