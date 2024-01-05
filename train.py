@@ -11,13 +11,13 @@ def evaluate(trainer, net, train_loader, valid_loader, train_results, valid_resu
         print(timestamp(f'Initial evaluation...'), flush=True)
     else:
         trainer.aggregate()
-        print(timestamp(trainer.training_log.describe(-1)), flush=True)
+        print(timestamp(trainer.training_log.describe(trainer.step)), flush=True)
         
-    train_results.evaluate(trainer.step, net, train_loader, batch_size=250, nb_documents=eval_size, seed=0xface)
-    print(timestamp(train_results.describe(-1)), flush=True)
+    train_results.evaluate(trainer.step)
+    print(timestamp(train_results.describe(trainer.step)), flush=True)
     
-    valid_results.evaluate(trainer.step, net, valid_loader, batch_size=250, nb_documents=eval_size, seed=0xfade)
-    print(timestamp(valid_results.describe(-1)), flush=True)
+    valid_results.evaluate(trainer.step)
+    print(timestamp(valid_results.describe(trainer.step)), flush=True)
 
 def main(task, model, variant, variant_id, load_checkpoint, checkpoints, force_load, device, stochastic, eval_first, no_save, args):
     config = load_config(task, model, variant=variant, variant_id=variant_id, args=args)
@@ -42,27 +42,27 @@ def main(task, model, variant, variant_id, load_checkpoint, checkpoints, force_l
 
     net = build_network(config, device=device)
     trainer = build_trainer(config, net, train_loader)
-    train_results = QuickResults(which='train')
-    valid_results = QuickResults(which='valid')
+    train_results = QuickResults(net=net, loader=train_loader, nb_documents=eval_size, batch_size=250, seed=0xface)
+    valid_results = QuickResults(net=net, loader=valid_loader, nb_documents=eval_size, batch_size=250, seed=0xfade)
     
     #try to load existing models or creating a new one
     if load_checkpoint is not None:
         load_path = checkpoints_path.format(step=load_checkpoint)
-        print(timestamp('Loading checkpoint...'), end='', flush=True)
+        print(timestamp(f'Loading checkpoint for {task}:{model}:{name}...'), end='', flush=True)
         load_state(load_path, config, net, trainer, train_results, valid_results, force=force_load, verbose=True)
         print(f' (step={trainer.step})', flush=True)
     elif os.path.exists(state_path):
-        print(timestamp('Loading models...'), end='', flush=True)
+        print(timestamp(f'Loading model {task}:{model}:{name}...'), end='', flush=True)
         load_state(state_path, config, net, trainer, train_results, valid_results, force=force_load, verbose=True)
         print(f' (step={trainer.step})', flush=True)
     else:
-        print(timestamp('New model created.'), flush=True)
-        save_state(state_path, config, net, trainer, train_results, valid_results)
+        print(timestamp(f'New model created - {task}:{model}:{name}'), flush=True)
+        if not no_save: save_state(state_path, config, net, trainer, train_results, valid_results)
     
     if trainer.step==0 and eval_first:
         evaluate(trainer, net, train_loader, valid_loader, train_results, valid_results, eval_size)
 
-    if trainer.step==0 and 0 in checkpoints:
+    if not no_save and trainer.step==0 and 0 in checkpoints:
         print(timestamp(f'Creating checkpoint... (step={trainer.step})'), flush=True)
         save_path = checkpoints_path.format(step=trainer.step)
         save_state(save_path, config, net, trainer, train_results, valid_results)
@@ -74,12 +74,14 @@ def main(task, model, variant, variant_id, load_checkpoint, checkpoints, force_l
             trainer.train(nb_steps=nb_train_steps)
             
             evaluate(trainer, net, train_loader, valid_loader, train_results, valid_results, eval_size)
-            save_state(state_path, config, net, trainer, train_results, valid_results)
-            if trainer.step in checkpoints and not no_save:
+            if not no_save: save_state(state_path, config, net, trainer, train_results, valid_results)
+            if not no_save and trainer.step in checkpoints:
                 print(timestamp(f'Creating checkpoint... (step={trainer.step})'), flush=True)
                 save_path = checkpoints_path.format(step=trainer.step)
                 save_state(save_path, config, net, trainer, train_results, valid_results)
-    except KeyboardInterrupt: print('\nBye!')
+    except KeyboardInterrupt:
+        print()
+        print(timestamp('Bye!'))
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
