@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 from abc import ABC, abstractmethod
 
 class ProceduralDB(ABC):
@@ -10,10 +11,11 @@ class ProceduralDB(ABC):
         self.seed = seed
         self.size = size
         self.chunk_size = chunk_size
-        self.generator = torch.Generator(device=device)
+        self.torch_generator = torch.Generator(device=device)
+        self.numpy_generator = np.random.RandomState()
         
     @abstractmethod
-    def generate_slice(self, beg, end, generator):
+    def generate_slice(self, beg, end, torch_generator, numpy_generator):
         pass
     
     def __len__(self):
@@ -21,13 +23,15 @@ class ProceduralDB(ABC):
     
     def get_chunk_generator(self, chunk_id):
         seed = 0xffff*chunk_id + self.seed
-        return self.generator.manual_seed(seed)
+        self.numpy_generator.seed(seed)
+        self.torch_generator.manual_seed(seed)
+        return self.torch_generator, self.numpy_generator
     
     def generate_chunk(self, chunk_id):
         beg = chunk_id * self.chunk_size
         end = beg + self.chunk_size
-        generator = self.get_chunk_generator(chunk_id)
-        return self.generate_slice(beg, end, generator)
+        torch_generator, numpy_generator = self.get_chunk_generator(chunk_id)
+        return self.generate_slice(beg, end, torch_generator, numpy_generator)
     
     def positive_index(self, index):
         if not (-self.size <= index < self.size):
@@ -77,23 +81,19 @@ class ProceduralDB(ABC):
             raise TypeError(f'indices must be integers, list, tuple, or slices. not {k_type}')
         return getattr(self, f'_getitem_{k_type}')(k)
     
-class ProceduralMosaicDB(ProceduralDB):
-    def __init__(self, mosaic_index, mosaic_loader, seed, chunk_size):
-        size, mosaic_size = mosaic_index.shape
-        h, w = mosaic_loader.height, mosaic_loader.width
-        if mosaic_size != h*w:
-            msg = f'mosaic_index has {mosaic_size} index which does not correspond to the loader mosaic shape ({h}x{w})'
-            raise ValueError(msg)
-            
+class ProceduralLabelsDB(ProceduralDB):
+    def __init__(self, labels, loader, seed):
         if not (0 <= seed < 0xffff//3):
             raise ValueError(f'the seed must be between 0 and {0xffff//3}')
-        seed = 3*seed + mosaic_loader.which_code
+        seed = 3*seed
+        if loader.which == 'valid': seed += 1
+        elif loader.which == 'test': seed += 2
         
-        super().__init__(seed, size, chunk_size, device=mosaic_loader.device)
-        self.mosaic_index = mosaic_index.reshape(size, h, w)
-        self.mosaic_loader = mosaic_loader
+        super().__init__(seed, len(labels), chunk_size=500, device=loader.device)
+        self.labels = labels
+        self.loader = loader
             
-    def generate_slice(self, beg, end, generator):
-        mosaic_index = self.mosaic_index[beg:end]
-        mosaic_index = torch.tensor(mosaic_index.astype(int))
-        return self.mosaic_loader.noisy_mosaic(mosaic_index, generator)
+    def generate_slice(self, beg, end, torch_generator, numpy_generator):
+        labels = self.labels[beg:end]
+        labels = torch.tensor(labels.astype(int))
+        return self.loader.batch_from_labels(labels, torch_generator=torch_generator, numpy_generator=numpy_generator)

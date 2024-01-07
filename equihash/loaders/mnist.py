@@ -28,9 +28,11 @@ class MnistMosaic(AbstractMosaicLoader):
         x = self.x[index]
         return x.view(-1, h, w, 28, 28).permute(0, 1, 3, 2, 4).reshape(*sh, h*28, w*28)
     
-    def batch_from_labels(self, index, nb_instances=None):
+    def batch_from_labels(self, index, nb_instances=None, torch_generator=None, numpy_generator=None):
+        torch_generator = self.torch_generator if torch_generator is None else torch_generator
+        numpy_generator = self.numpy_generator if numpy_generator is None else numpy_generator
         if nb_instances is not None:
             index = torch.stack(nb_instances*[index], dim=1)
         mosaic = self.mosaic(index)
-        noise = torch.normal(0, self.sigma, mosaic.shape, generator=self.torch_generator, device=self.device)
+        noise = torch.normal(0, self.sigma, mosaic.shape, generator=torch_generator, device=self.device)
         return mosaic + noise

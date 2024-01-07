@@ -28,13 +28,15 @@ class DigiFace(AbstractLoader):
     def x(self):
         return self._x
     
-    def batch_from_labels(self, labels, nb_instances=None):
+    def batch_from_labels(self, labels, nb_instances=None, torch_generator=None, numpy_generator=None):
+        torch_generator = self.torch_generator if torch_generator is None else torch_generator
+        numpy_generator = self.numpy_generator if numpy_generator is None else numpy_generator
         if nb_instances is None:
             instances = torch.randint(
-                0, self.nb_instances_per_labels, labels.shape, generator=self.torch_generator, device=self.device)
+                0, self.nb_instances_per_labels, labels.shape, generator=torch_generator, device=self.device)
         else:
             instances = unique_randint(
-                0, self.nb_instances_per_labels, n=len(labels), k=nb_instances, rng=self.numpy_generator)
+                0, self.nb_instances_per_labels, n=len(labels), k=nb_instances, rng=numpy_generator)
             instances = torch.tensor(instances, device=self.device)
             labels = torch.stack(nb_instances*[labels], dim=1)
         return self.x[labels, instances]
@@ -60,7 +62,9 @@ class DigiFaceMosaic(AbstractMosaicLoader):
         x = self.x[labels, instances]
         return x.view(-1, h, w, 112, 112, 3).permute(0, 1, 3, 2, 4, 5).reshape(*sh, h*112, w*112, 3)
     
-    def batch_from_labels(self, labels, nb_instances=None):
+    def batch_from_labels(self, labels, nb_instances=None, torch_generator=None, numpy_generator=None):
+        torch_generator = self.torch_generator if torch_generator is None else torch_generator
+        numpy_generator = self.numpy_generator if numpy_generator is None else numpy_generator
         k = 1 if nb_instances is None else nb_instances
         *sh, h, w = labels.shape
         labels = torch.stack(k*[labels], dim=-3)
@@ -68,7 +72,7 @@ class DigiFaceMosaic(AbstractMosaicLoader):
             0, self.nb_instances_per_labels,
             n=np.prod(sh, dtype=int), k=k,
             mosaic_shape=self.mosaic_shape,
-            rng=self.numpy_generator
+            rng=numpy_generator
         ).reshape(*sh, k, *self.mosaic_shape)
         instances = torch.tensor(instances)
         mosaic = self.mosaic(labels, instances)

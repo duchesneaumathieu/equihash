@@ -1,1 +1,1 @@
-from .procedural import ProceduralMosaicDB
+from .procedural import ProceduralLabelsDB

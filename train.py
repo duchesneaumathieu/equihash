@@ -4,6 +4,7 @@ from equihash.utils import timestamp
 from equihash.utils.config import load_config, build_loader, build_network, build_trainer
 from equihash.utils.states import save_state, load_state
 from equihash.evaluation import QuickResults
+from evaluate_binary_equihash import evaluate_binary_equihash
 
 def evaluate(trainer, net, train_loader, valid_loader, train_results, valid_results, eval_size):
     net.eval()
@@ -19,7 +20,8 @@ def evaluate(trainer, net, train_loader, valid_loader, train_results, valid_resu
     valid_results.evaluate(trainer.step)
     print(timestamp(valid_results.describe(trainer.step)), flush=True)
 
-def main(task, model, variant, variant_id, load_checkpoint, checkpoints, force_load, device, stochastic, eval_first, no_save, args):
+def main(task, model, variant, variant_id, load_checkpoint, checkpoints,
+         force_load, device, stochastic, eval_first, no_save, database_name, args):
     config = load_config(task, model, variant=variant, variant_id=variant_id, args=args)
     #unpacking useful config item
     name = config['name']
@@ -82,6 +84,12 @@ def main(task, model, variant, variant_id, load_checkpoint, checkpoints, force_l
     except KeyboardInterrupt:
         print()
         print(timestamp('Bye!'))
+        sys.exit(0)
+        
+    if database_name is not None:
+        print() #newline
+        evaluate_binary_equihash(task, database_name, model, variant, variant_id,
+                                 load_checkpoint=None, which='test', device=device, encode=True, verbose=True)
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -100,6 +108,10 @@ if __name__ == '__main__':
     parser.add_argument('-e', '--eval_first', action='store_true', default=False,
                         help='If set, the model will be evaluated before the training starts.')
     parser.add_argument('--no_save', action='store_true', default=False, help='If set, the model won\'t be saved.')
+    parser.add_argument(
+        '--database_name', type=str, required=False, default=None,
+        help='The database name used for testing after the training is complete. If nothing is provided, no test will be performed.'
+    )
     parser.add_argument(
         '-a', '--args', nargs="*", type=str,
         help="To overwrite config arguments. e.g. trainer_kwargs:alpha:0.15"

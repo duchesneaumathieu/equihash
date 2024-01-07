@@ -2,8 +2,8 @@ import torch
 import numpy as np
 from typing import List, Dict
 from dataclasses import dataclass, field
-from .losses.entropy import BitsCombinations
-from .utils import covering_random_combinations
+from equihash.losses.entropy import BitsCombinations
+from equihash.utils import covering_random_combinations
 
 def number_of_buckets(codes):
     d = dict()

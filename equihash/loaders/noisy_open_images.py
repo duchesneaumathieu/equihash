@@ -161,8 +161,9 @@ class NoisyOpenImages(AbstractLoader):
         x = self.x[index.flatten()].permute(0,3,1,2) #B, H, W, 3 --> B, 3, h, w
         return x.view(*sh, *x.shape[1:])
     
-    def batch_from_labels(self, index, nb_instances=None, generator=None):
-        generator = self.torch_generator if generator is None else generator
+    def batch_from_labels(self, index, nb_instances=None, torch_generator=None, numpy_generator=None):
+        torch_generator = self.torch_generator if torch_generator is None else torch_generator
+        numpy_generator = self.numpy_generator if numpy_generator is None else numpy_generator
         k = 1 if nb_instances is None else nb_instances
         index = torch.stack(k*[index], dim=1)
         
@@ -175,21 +176,21 @@ class NoisyOpenImages(AbstractLoader):
         images = self.format_converter.torch_rgb_to_hls(images)
         
         #updating hue
-        images[:,0] += torch_uniform(-1/16, 1/16, (n,), device=self.device, generator=generator).view(n, 1, 1)
+        images[:,0] += torch_uniform(-1/16, 1/16, (n,), device=self.device, generator=torch_generator).view(n, 1, 1)
         images[:,0] %= 1
         
         #updating lightness
-        a = torch_uniform(-0.2, 0.2, (n,), device=self.device, generator=generator).view(n, 1, 1)
+        a = torch_uniform(-0.2, 0.2, (n,), device=self.device, generator=torch_generator).view(n, 1, 1)
         images[:,1] = (1-a.abs())*images[:,1] + torch.maximum(torch.zeros_like(a), a)
         
         #updating saturation
-        #a = torch_uniform(-0.1, 0.1, (n,), device=self.device, generator=generator).view(n, 1, 1)
+        #a = torch_uniform(-0.1, 0.1, (n,), device=self.device, generator=torch_generator).view(n, 1, 1)
         #images[:,2] = (1-a.abs())*images[:,2] + torch.maximum(torch.zeros_like(a), a)
         
         images = self.format_converter.torch_hls_to_rgb(images)
         
         #spacial distortion
-        images = self.image_distortion(images, generator=generator)
+        images = self.image_distortion(images, generator=torch_generator)
         
         #post processing
         images = (images.clip(0,1)*255).to(torch.uint8)
@@ -241,8 +242,9 @@ class NoisyOpenImagesMosaic(AbstractMosaicLoader):
         n, c, h, w = mosaic.shape
         return mosaic.view(*sh, c, h, w)
     
-    def batch_from_labels(self, index, nb_instances=None, generator=None):
-        generator = self.torch_generator if generator is None else generator
+    def batch_from_labels(self, index, nb_instances=None, torch_generator=None, numpy_generator=None):
+        torch_generator = self.torch_generator if torch_generator is None else torch_generator
+        numpy_generator = self.numpy_generator if numpy_generator is None else numpy_generator
         k = 1 if nb_instances is None else nb_instances
         index = torch.stack(k*[index], dim=1)
         
@@ -255,21 +257,21 @@ class NoisyOpenImagesMosaic(AbstractMosaicLoader):
         images = self.format_converter.torch_rgb_to_hls(images)
         
         #updating hue
-        images[:,0] += torch_uniform(-1/16, 1/16, (n,), device=self.device, generator=generator).view(n, 1, 1)
+        images[:,0] += torch_uniform(-1/16, 1/16, (n,), device=self.device, generator=torch_generator).view(n, 1, 1)
         images[:,0] %= 1
         
         #updating lightness
-        a = torch_uniform(-0.2, 0.2, (n,), device=self.device, generator=generator).view(n, 1, 1)
+        a = torch_uniform(-0.2, 0.2, (n,), device=self.device, generator=torch_generator).view(n, 1, 1)
         images[:,1] = (1-a.abs())*images[:,1] + torch.maximum(torch.zeros_like(a), a)
         
         #updating saturation #this kind of saturation creates artefacts
-        #a = torch_uniform(-0.1, 0.1, (n,), device=self.device, generator=generator).view(n, 1, 1)
+        #a = torch_uniform(-0.1, 0.1, (n,), device=self.device, generator=torch_generator).view(n, 1, 1)
         #images[:,2] = (1-a.abs())*images[:,2] + torch.maximum(torch.zeros_like(a), a)
         
         images = self.format_converter.torch_hls_to_rgb(images)
         
         #spacial distortion
-        images = self.image_distortion(images, generator=generator)
+        images = self.image_distortion(images, generator=torch_generator)
         
         #post processing
         images = (images.clip(0,1)*255).to(torch.uint8)
