@@ -6,7 +6,7 @@ from equihash.utils.states import save_state, load_state
 from equihash.evaluation import QuickResults
 from evaluate_binary_equihash import evaluate_binary_equihash
 
-def evaluate(trainer, net, train_loader, valid_loader, train_results, valid_results, eval_size):
+def evaluate(trainer, net, train_results, valid_results, eval_size):
     net.eval()
     if trainer.step == 0:
         print(timestamp(f'Initial evaluation...'), flush=True)
@@ -21,7 +21,7 @@ def evaluate(trainer, net, train_loader, valid_loader, train_results, valid_resu
     print(timestamp(valid_results.describe(trainer.step)), flush=True)
 
 def main(task, model, variant, variant_id, load_checkpoint, checkpoints,
-         force_load, device, stochastic, eval_first, no_save, database_name, args):
+         force_load, device, stochastic, eval_first, no_save, no_load, database_name, args):
     config = load_config(task, model, variant=variant, variant_id=variant_id, args=args)
     #unpacking useful config item
     name = config['name']
@@ -53,7 +53,7 @@ def main(task, model, variant, variant_id, load_checkpoint, checkpoints,
         print(timestamp(f'Loading checkpoint for {task}:{model}:{name}...'), end='', flush=True)
         load_state(load_path, config, net, trainer, train_results, valid_results, force=force_load, verbose=True)
         print(f' (step={trainer.step})', flush=True)
-    elif os.path.exists(state_path):
+    elif os.path.exists(state_path) and not no_load:
         print(timestamp(f'Loading model {task}:{model}:{name}...'), end='', flush=True)
         load_state(state_path, config, net, trainer, train_results, valid_results, force=force_load, verbose=True)
         print(f' (step={trainer.step})', flush=True)
@@ -62,7 +62,7 @@ def main(task, model, variant, variant_id, load_checkpoint, checkpoints,
         if not no_save: save_state(state_path, config, net, trainer, train_results, valid_results)
     
     if trainer.step==0 and eval_first:
-        evaluate(trainer, net, train_loader, valid_loader, train_results, valid_results, eval_size)
+        evaluate(trainer, net, train_results, valid_results, eval_size)
 
     if not no_save and trainer.step==0 and 0 in checkpoints:
         print(timestamp(f'Creating checkpoint... (step={trainer.step})'), flush=True)
@@ -75,7 +75,7 @@ def main(task, model, variant, variant_id, load_checkpoint, checkpoints,
             nb_train_steps = eval_freq - trainer.step%eval_freq
             trainer.train(nb_steps=nb_train_steps)
             
-            evaluate(trainer, net, train_loader, valid_loader, train_results, valid_results, eval_size)
+            evaluate(trainer, net, train_results, valid_results, eval_size)
             if not no_save: save_state(state_path, config, net, trainer, train_results, valid_results)
             if not no_save and trainer.step in checkpoints:
                 print(timestamp(f'Creating checkpoint... (step={trainer.step})'), flush=True)
@@ -108,6 +108,7 @@ if __name__ == '__main__':
     parser.add_argument('-e', '--eval_first', action='store_true', default=False,
                         help='If set, the model will be evaluated before the training starts.')
     parser.add_argument('--no_save', action='store_true', default=False, help='If set, the model won\'t be saved.')
+    parser.add_argument('--no_load', action='store_true', default=False, help='If set, the model won\'t be loaded if it exists.')
     parser.add_argument(
         '--database_name', type=str, required=False, default=None,
         help='The database name used for testing after the training is complete. If nothing is provided, no test will be performed.'

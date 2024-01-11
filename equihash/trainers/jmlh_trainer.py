@@ -4,6 +4,7 @@ from equihash.losses.straight_through import straight_through_sign, straight_thr
 from equihash.evaluation import saturation_ratio
 from equihash.utils import ValueGradClipper
 from equihash.utils.more_torch import kld_loss
+from equihash.utils.unique_randint import unique_randint
 softplus = torch.nn.Softplus()
 
 from typing import List, Dict
@@ -100,7 +101,8 @@ class JMLHTrainer:
         self.nb_classes = nb_classes
         self.loss_function = JMLHLoss(self.nbits, nb_classes, generator=self.loader.torch_generator, **loss_kwargs)
         if self.loader.device == 'cuda': self.loss_function.cuda()
-        self.training_labels = self.loader.labels_generator.generate_labels(self.nb_classes, replacement=False) #numpy array
+        rng = np.random.RandomState(0xcafe)
+        self.training_labels = self.loader.generate_labels(n=1, k=self.nb_classes, numpy_generator=rng)[0] #numpy array
         self.optim = torch.optim.__dict__[optim_class](self.parameters, **optim_kwargs)
         self.nb_batch_per_step = nb_batch_per_step
         self.training_log = TrainingLogs()

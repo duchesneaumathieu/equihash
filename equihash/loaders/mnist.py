@@ -2,9 +2,9 @@ import h5py, torch
 from .abstractloader import AbstractMosaicLoader
 
 _mnist_mosaic_splits = {
-    'train': (0, 23_000),
-    'valid': (23_000, 46_000),
-    'test': (46_000, 69_000),
+    'train': (0, 50_000),
+    'valid': (50_000, 60_000),
+    'test': (60_000, 70_000),
 }
 
 class MnistMosaic(AbstractMosaicLoader):

@@ -16,8 +16,10 @@ class AbstractLoader(ABC):
             self.torch_generator.manual_seed(seed)
         else: self.numpy_generator = np.random
         
-    def generate_labels(self, n, k):
-        return unique_randint(0, len(self.x), n=n, k=k, dtype=np.int64, rng=self.numpy_generator)
+    def generate_labels(self, n, k, numpy_generator=None):
+        if numpy_generator is None:
+            numpy_generator = self.numpy_generator
+        return unique_randint(0, len(self.x), n=n, k=k, dtype=np.int64, rng=numpy_generator)
     
     @property
     @abstractmethod
@@ -119,6 +121,8 @@ class AbstractMosaicLoader(AbstractLoader):
         self.mosaic_shape = (height, width)
         super().__init__(size=size, which=which, dtype=dtype, device=device, seed=seed)
         
-    def generate_labels(self, n, k):
+    def generate_labels(self, n, k, numpy_generator=None):
+        if numpy_generator is None:
+            numpy_generator = self.numpy_generator
         return unique_randint_mosaic(
-            0, len(self.x), n=n, k=k, mosaic_shape=self.mosaic_shape, dtype=np.int64, rng=self.numpy_generator)
+            0, len(self.x), n=n, k=k, mosaic_shape=self.mosaic_shape, dtype=np.int64, rng=numpy_generator)
