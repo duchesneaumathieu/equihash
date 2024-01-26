@@ -1,0 +1,29 @@
+{
+    "seed": 51966,
+    "nb_steps": 100000,
+    "eval_freq": 100,
+    "eval_size": 50000,
+    
+    "network_class": "Uint8ResNet",
+    "network_kwargs": {
+        "k": 64,
+        "version": 18,
+        "batch_norm": true,
+        "HWC": false
+    },
+    
+    "loader_class": "NoisyOpenImagesMosaic",
+    "loader_kwargs": {
+        "open_images_path": "data/datasets/OpenImages/",
+        "perlin_noise_path": "data/datasets/PerlinNoise/perlin180x270.hdf5",
+        "size": 64,
+        "HWC": false
+    },
+    
+    "trainer_kwargs": {
+        "optim_class": "Adam",
+        "optim_kwargs": {"lr": 0.001},
+        "clip_value": 10.0,
+        "nb_batch_per_step": 32
+    }
+}

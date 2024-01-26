@@ -4,22 +4,24 @@ from equihash.utils.unique_randint import unique_randint, unique_randint_mosaic
 from .abstractloader import AbstractLoader, AbstractMosaicLoader
 
 _digiface_splits = {
-    'train': (0, 40_000),
-    'valid': (40_000, 49_999),
-    'test': (49_999, 109_999),
+    'train': (0, 50_000),
+    'valid': (50_000, 59_999),
+    'test': (59_999, 109_999),
 }
 
 _digiface_mosaic_splits = {
-    'train': (0, 36_000),
-    'valid': (36_000, 72_000),
-    'test': (72_000, 108_000),
+    'train': (0, 50_000),
+    'valid': (50_000, 59_999),
+    'test': (59_999, 109_999),
 }
 
 class DigiFace(AbstractLoader):
-    def __init__(self, path, size=None, instances=[0,1,2,3,4], which='train', split=None, dtype=torch.float32, device='cpu', seed=None):
+    def __init__(self, path, size=None, instances=[0,1,2,3,4], which='train', split=None, HWC=False, dtype=torch.float32, device='cpu', seed=None):
         a, b = _digiface_splits[which] if split is None else split
-        with h5py.File(path, 'r') as f: x = f['images'][a:b][:,instances]
+        with h5py.File(path, 'r') as f: 
+            x = f['images'][a:b][:,instances]
         self._x = torch.tensor(x, dtype=torch.uint8, device=device)
+        if not HWC: self._x = self._x.permute(0, 1, 4, 2, 3) #HWC --> CHW
         self.nb_instances_per_labels = len(instances)
         
         super().__init__(size=size, which=which, dtype=dtype, device=device, seed=seed)
@@ -32,8 +34,8 @@ class DigiFace(AbstractLoader):
         torch_generator = self.torch_generator if torch_generator is None else torch_generator
         numpy_generator = self.numpy_generator if numpy_generator is None else numpy_generator
         if nb_instances is None:
-            instances = torch.randint(
-                0, self.nb_instances_per_labels, labels.shape, generator=torch_generator, device=self.device)
+            instances = numpy_generator.randint(0, self.nb_instances_per_labels, labels.shape)
+            instances = torch.tensor(instances)
         else:
             instances = unique_randint(
                 0, self.nb_instances_per_labels, n=len(labels), k=nb_instances, rng=numpy_generator)
@@ -42,13 +44,16 @@ class DigiFace(AbstractLoader):
         return self.x[labels, instances]
     
 class DigiFaceMosaic(AbstractMosaicLoader):
-    def __init__(self, path, height=1, width=2, size=None, instances=[0,1,2,3,4], which='train', split=None, dtype=torch.float32, device='cpu', seed=None):
+    def __init__(self, path, height=1, width=2, size=None, instances=[0,1,2,3,4], which='train', split=None, HWC=False, dtype=torch.float32, device='cpu', seed=None):
         self.height = height
         self.width = width
+        self.HWC = HWC
         
         a, b = _digiface_splits[which] if split is None else split
-        with h5py.File(path, 'r') as f: x = f['images'][a:b][:,instances]
+        with h5py.File(path, 'r') as f:
+            x = f['images'][a:b][:,instances]
         self._x = torch.tensor(x, dtype=torch.uint8, device=device)
+        if not HWC: self._x = self._x.permute(0, 1, 4, 2, 3) #HWC --> CHW
         self.nb_instances_per_labels = len(instances)
         
         super().__init__(height=height, width=width, size=size, which=which, dtype=dtype, device=device, seed=seed)
@@ -60,7 +65,9 @@ class DigiFaceMosaic(AbstractMosaicLoader):
     def mosaic(self, labels, instances):
         *sh, h, w = labels.shape
         x = self.x[labels, instances]
-        return x.view(-1, h, w, 112, 112, 3).permute(0, 1, 3, 2, 4, 5).reshape(*sh, h*112, w*112, 3)
+        if self.HWC:
+            return x.view(-1, h, w, 112, 112, 3).permute(0, 1, 3, 2, 4, 5).reshape(*sh, h*112, w*112, 3)
+        return x.view(-1, h, w, 3, 112, 112).permute(0, 3, 1, 4, 2, 5).reshape(*sh, 3, h*112, w*112)
     
     def batch_from_labels(self, labels, nb_instances=None, torch_generator=None, numpy_generator=None):
         torch_generator = self.torch_generator if torch_generator is None else torch_generator

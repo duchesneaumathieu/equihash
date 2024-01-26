@@ -1,0 +1,23 @@
+{
+    "seed": 51966,
+    "nb_steps": 100000,
+    "eval_freq": 1000,
+    "eval_size": 500000,
+    
+    "network_class": "MnistResNet",
+    "network_kwargs": {
+        "k": 64,
+        "batch_norm": true},
+    
+    "loader_class": "MnistMosaic",
+    "loader_kwargs": {
+        "path": "data/datasets/Mnist/mnist.hdf5",
+        "size": 64},
+    
+    "trainer_kwargs": {
+        "optim_class": "Adam",
+        "optim_kwargs": {"lr": 0.001},
+        "clip_value": 10.0,
+        "nb_batch_per_step": 32
+    }
+}

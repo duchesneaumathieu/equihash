@@ -127,15 +127,19 @@ class ImageDistortion(object):
 
 class NoisyOpenImages(AbstractLoader):
     def __init__(self, open_images_path, perlin_noise_path,
-                 size=None, which='train', device='cpu', dtype=torch.float32, seed=None,
+                 size=None, which='train', device='cpu', HWC=False, dtype=torch.float32, seed=None,
                  images_limit=None, perlin_limit=None, load=True):
         super().__init__(size=size, which=which, dtype=dtype, device=device, seed=seed)
+        if (not load) and (not HWC):
+            raise NotImplementedError('load=False and HWC=False not implemented.')
         
+        self.HWC = HWC
         hdf5_path = os.path.join(open_images_path, 'hdf5', f'{which}.hdf5')
         if load and os.path.exists(hdf5_path):
             with h5py.File(hdf5_path, 'r') as f:
                 imgs = f['images'][:images_limit]
             self._x = torch.tensor(imgs, device=device, dtype=torch.uint8)
+            if not HWC: self._x = self._x.permute(0, 3, 1, 2) #HWC --> CHW
             self._loaded = True
         else:
             split_path = os.path.join(open_images_path, 'splits', f'{which}_split.pkl')
@@ -158,7 +162,8 @@ class NoisyOpenImages(AbstractLoader):
         
     def unnoised_batch_from_labels(self, index):
         sh = index.shape
-        x = self.x[index.flatten()].permute(0,3,1,2) #B, H, W, 3 --> B, 3, h, w
+        x = self.x[index.flatten()]
+        if self.HWC: x = x.permute(0, 3, 1, 2) #HWC --> CHW
         return x.view(*sh, *x.shape[1:])
     
     def batch_from_labels(self, index, nb_instances=None, torch_generator=None, numpy_generator=None):
@@ -194,8 +199,12 @@ class NoisyOpenImages(AbstractLoader):
         
         #post processing
         images = (images.clip(0,1)*255).to(torch.uint8)
-        images = images.permute(0, 2, 3, 1)
-        images = images.view(*sh, h, w, c)
+        if self.HWC:
+            images = images.permute(0, 2, 3, 1)
+            images = images.view(*sh, h, w, c)
+        else:
+            images = images.view(*sh, c, h, w)
+        
         if nb_instances is None:
             images = images[:,0]
         
@@ -204,15 +213,19 @@ class NoisyOpenImages(AbstractLoader):
     
 class NoisyOpenImagesMosaic(AbstractMosaicLoader):
     def __init__(self, open_images_path, perlin_noise_path,
-                 size=None, which='train', device='cpu', dtype=torch.float32, seed=None,
+                 size=None, which='train', device='cpu', HWC=False, dtype=torch.float32, seed=None,
                  images_limit=None, perlin_limit=None, load=True):
         super().__init__(height=1, width=2, size=size, which=which, dtype=dtype, device=device, seed=seed)
+        if (not load) and (not HWC):
+            raise NotImplementedError('load=False and HWC=False not implemented.')
         
+        self.HWC = HWC
         hdf5_path = os.path.join(open_images_path, 'hdf5', f'{which}.hdf5')
         if load and os.path.exists(hdf5_path):
             with h5py.File(hdf5_path, 'r') as f:
                 imgs = f['images'][:images_limit]
             self._x = torch.tensor(imgs, device=device, dtype=torch.uint8)
+            if not HWC: self._x = self._x.permute(0, 3, 1, 2) #HWC --> CHW
             self._loaded = True
         else:
             split_path = os.path.join(open_images_path, 'splits', f'{which}_split.pkl')
@@ -237,7 +250,8 @@ class NoisyOpenImagesMosaic(AbstractMosaicLoader):
     def unnoised_batch_from_labels(self, index):
         *sh, h, w = index.shape
         index = index.view(-1, w)
-        x = self.x[index].permute(0,1,4,2,3) #b1, b2, h, w, 3 --> b1, b2 3, h, w
+        x = self.x[index]
+        if self.HWC: x = x.permute(0, 1, 4, 2, 3) #HWC --> CHW
         mosaic = self.mosaic_builder(x.float()).clip(0, 255).to(torch.uint8)
         n, c, h, w = mosaic.shape
         return mosaic.view(*sh, c, h, w)
@@ -275,8 +289,12 @@ class NoisyOpenImagesMosaic(AbstractMosaicLoader):
         
         #post processing
         images = (images.clip(0,1)*255).to(torch.uint8)
-        images = images.permute(0, 2, 3, 1)
-        images = images.view(*sh, h, w, c)
+        if self.HWC:
+            images = images.permute(0, 2, 3, 1)
+            images = images.view(*sh, h, w, c)
+        else:
+            images = images.view(*sh, c, h, w)
+        
         if nb_instances is None:
             images = images[:,0]
         

@@ -1,0 +1,12 @@
+{
+    "name": "main",
+    "trainer_class": "HashNetTrainer",
+    "trainer_kwargs": {
+        "alpha": 0.15,
+        "beta_scheduler_kwargs": {
+            "init": 1.0,
+            "gamma":0.0005,
+            "power":0.5,
+            "step_size":200}
+    }
+}

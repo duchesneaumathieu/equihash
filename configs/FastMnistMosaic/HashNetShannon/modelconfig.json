@@ -1,0 +1,26 @@
+{
+    "name": "main",
+    "trainer_class": "HashNetShannonTrainer",
+    "trainer_kwargs": {
+        "alpha": 0.05,
+        "shannon_lambda": 0.0001,
+        "shannon_gradient_kwargs": {
+            "batch_size": 512,
+            "gradient_type": "normal",
+            "prior": 1.0
+        },
+        "shannon_tuple_size": 3,
+        "shannon_tuple_cover_size": 3,
+        "shannon_shuffle_logits": false,
+        "huber_loss_kwargs": {
+            "maximum_slope": 0.00,
+            "branching_point": 9.0
+        },
+        "beta_scheduler_kwargs": {
+            "init": 1.0,
+            "gamma":0.0005,
+            "power":0.5,
+            "step_size":200
+        }
+    }
+}

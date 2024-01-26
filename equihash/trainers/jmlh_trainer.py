@@ -131,7 +131,7 @@ class JMLHTrainer:
                 loss = self.loss_function(out, torch.tensor(labels_id)).mean()
                 self.training_log.losses.append(float(loss))
                 (loss/self.nb_batch_per_step).backward()
-
+            
             clip_ratio = self.grad_clipper.clip()
             self.training_log.clipping_ratios.append(clip_ratio)
             self.optim.step()

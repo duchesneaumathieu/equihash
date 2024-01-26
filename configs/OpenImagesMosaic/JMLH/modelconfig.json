@@ -1,0 +1,13 @@
+{
+    "name": "main",
+    "trainer_class": "JMLHTrainer",
+    "trainer_kwargs": {
+        "nb_classes": 10000,
+        "loss_kwargs": {
+            "kld_coeff": 0.1,
+            "bias": true,
+            "deterministic": false,
+            "binarization": "heaviside"
+        }
+    }
+}

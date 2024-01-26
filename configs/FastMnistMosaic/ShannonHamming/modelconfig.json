@@ -1,0 +1,20 @@
+{
+    "name": "main",
+    "trainer_class": "ShannonHammingTrainer",
+    "trainer_kwargs": {
+        "shannon_lambda": 0.01,
+        "hamming_lambda": 1.0,
+        "shannon_gradient_kwargs": {
+            "batch_size": 512,
+            "gradient_type": "normal",
+            "prior": 1.0
+        },
+        "shannon_tuple_size": 3,
+        "shannon_tuple_cover_size": 3,
+        "shannon_shuffle_logits": false,
+        "huber_loss_kwargs": {
+            "maximum_slope": 0.00,
+            "branching_point": 9.0
+        }
+    }
+}

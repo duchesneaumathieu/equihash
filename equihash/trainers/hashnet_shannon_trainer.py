@@ -8,42 +8,15 @@ from dataclasses import dataclass, field
 
 from equihash.losses.entropy import TuplesEntropyGradient
 from equihash.losses.regularization import HuberLoss
-from equihash.utils import ValueGradClipper, covering_random_combinations, add_combinations
+from equihash.utils import PolynomialStepScheduler, ValueGradClipper, covering_random_combinations
 from equihash.evaluation import saturation_ratio
 from equihash.utils.more_torch import torch_lse, torch_logsumexp, torch_invperm
 log_sigmoid = torch.nn.LogSigmoid()
-
-
-def multi_bernoulli_equality(xz, yz):
-    """
-    Compute the bitwise log probability that two Multi-Bernoulli are equal.
-    
-    Parameters
-    ----------
-    xz : torch.tensor
-        the logits (before sigmoid) of the first Multi-Bernoulli
-    yz : torch.tensor
-        the logits (before sigmoid) of the second Multi-Bernoulli
-        
-    Returns
-    -------
-    log_p0 : torch.tensor
-        the bitwise log probability that the two Multi-Bernoulli are not equal
-    log_p1 : torch.tensor
-        the bitwise log probability that the two Multi-Bernoulli are equal
-        
-    Notes
-    -----
-    xz and yz need not to have the same shape, but they should
-    be broadcastable.
-    """
-    xp, yp, xn, yn = map(log_sigmoid, (xz, yz, -xz, -yz))
-    log_p0 = torch_logsumexp(xp + yn, xn + yp)
-    log_p1 = torch_logsumexp(xp + yp, xn + yn)
-    return log_p0, log_p1
+softplus = torch.nn.Softplus()
 
 @dataclass
 class TrainingLog:
+    beta: float
     max_clipping_ratio: float
     max_saturation_ratio: float
     shannon_gradient_maximum_norm_quantiles: List[float]
@@ -53,8 +26,9 @@ class TrainingLog:
     def __repr__(self):
         sq = ','.join([f'{q:.4f}' for q in self.shannon_gradient_maximum_norm_quantiles])
         hq = ','.join([f'{q:.4f}' for q in self.hamming_gradient_maximum_norm_quantiles])
-        uq = ','.join([f'{q:.6f}' for q in self.huber_gradient_maximum_norm_quantiles])
-        return (f'max_saturation:{100*self.max_saturation_ratio:.4f}% - '
+        uq = ','.join([f'{q:.4f}' for q in self.huber_gradient_maximum_norm_quantiles])
+        return (f'beta:{self.beta:.4f} - '
+                f'max_saturation:{100*self.max_saturation_ratio:.4f}% - '
                 f'max_clipping:{100*self.max_clipping_ratio:.4f}% - '
                 f'shannon_grad_quantiles:[{sq}] - '
                 f'hamming_grad_quantiles:[{hq}] - '
@@ -77,12 +51,13 @@ class TrainingLogs:
         self.huber_gradient_maximum_norms.clear()
         return self
     
-    def aggregate(self, step):
+    def aggregate(self, step, beta):
         nans_quantiles = 5*[float('nan')]
         sm = self.shannon_gradient_maximum_norms
         hm = self.hamming_gradient_maximum_norms
         um = self.huber_gradient_maximum_norms
         log = TrainingLog(
+            beta=beta,
             max_saturation_ratio=max(self.saturation_ratios) if self.saturation_ratios else float('nan'),
             max_clipping_ratio=max(self.clipping_ratios) if self.clipping_ratios else float('nan'),
             shannon_gradient_maximum_norm_quantiles=np.quantile(sm, [0, .05, .5, .95, 1]).tolist() if sm else nans_quantiles,
@@ -104,9 +79,9 @@ class TrainingLogs:
     def describe(self, step):
         return f'step:{step} - {self.logs[step]}'
 
-class ShannonHammingTrainer:
+class HashNetShannonTrainer:
     def __init__(self, net, loader,
-                 shannon_lambda, hamming_lambda,
+                 alpha, shannon_lambda,
                  shannon_gradient_kwargs = {
                      'batch_size': 512,
                      'gradient_type': 'normal',
@@ -114,12 +89,16 @@ class ShannonHammingTrainer:
                  },
                  shannon_tuple_size=3,
                  shannon_tuple_cover_size=None,
-                 shannon_minimum_number_of_tuples=1,
                  shannon_shuffle_logits=False,
                  huber_loss_kwargs = {
                      "maximum_slope": 0.0,
                      "branching_point": 9.0,
                  },
+                 beta_scheduler_kwargs={
+                     'init': 1.0,
+                     'gamma':0.005,
+                     'power':0.5,
+                     'step_size':200},
                  optim_class='Adam', optim_kwargs={'lr': 0.001},
                  clip_value=1, nb_batch_per_step=1):
         shannon_tuple_cover_size = shannon_tuple_size if shannon_tuple_cover_size is None else shannon_tuple_cover_size
@@ -132,18 +111,21 @@ class ShannonHammingTrainer:
         self.optim = torch.optim.__dict__[optim_class](net.parameters(), **optim_kwargs)
         self.grad_clipper = ValueGradClipper(net.parameters(), clip_value)
         
+        self.alpha = alpha
         self.shannon_lambda = shannon_lambda
-        self.hamming_lambda = hamming_lambda
         self.huber_loss = HuberLoss(**huber_loss_kwargs)
         self.shannon_shuffle_logits = shannon_shuffle_logits
-        tuples_rng = np.random.RandomState(0xcafe)
-        tuples = covering_random_combinations(n=self.nbits, k=shannon_tuple_size, cover_k=shannon_tuple_cover_size, rng=tuples_rng)
-        tuples = add_combinations(n=self.nbits, k=shannon_tuple_size, combs=tuples, target_size=shannon_minimum_number_of_tuples, rng=tuples_rng)
+        tuples = covering_random_combinations(n=self.nbits, k=shannon_tuple_size, cover_k=shannon_tuple_cover_size)
+        self.beta_scheduler = PolynomialStepScheduler(**beta_scheduler_kwargs)
         self.shannon_tuple_gradient = TuplesEntropyGradient(tuples, **shannon_gradient_kwargs)
         
     @property
     def nbits(self):
         return self.net.k
+    
+    @property
+    def beta(self):
+        return self.beta_scheduler(self.step)
         
     def shannon_grad_wrt_logits(self, logits):
         logits = logits.detach()
@@ -166,8 +148,9 @@ class ShannonHammingTrainer:
         #logits.shape = (n, 2, nbits)
         logits = logits.detach()
         logits.requires_grad = True
-        equality = multi_bernoulli_equality(logits[:,0], logits[:,1])[1].sum(dim=1)
-        hamming_loss = -self.hamming_lambda*equality.mean()
+        dots = torch.tanh(self.beta*logits).prod(dim=1).sum(dim=1)
+        losses = softplus(self.alpha*dots) - self.alpha*dots
+        hamming_loss = losses.mean()
         hamming_loss.backward()
         return logits.grad
     
@@ -221,7 +204,7 @@ class ShannonHammingTrainer:
         return self.step
     
     def aggregate(self):
-        self.training_log.aggregate(self.step)
+        self.training_log.aggregate(self.step, self.beta)
         return self
     
     def state_dict(self):

@@ -30,6 +30,14 @@ def covering_random_combinations(n, k, cover_k, rng=np.random):
                 break
     return sorted(combs)
 
+def add_combinations(n, k, combs, target_size, rng=np.random):
+    combs = set(combs)
+    while len(combs) < target_size:
+        comb = tuple(sorted(rng.randint(0, n, k).tolist()))
+        if len(set(comb))==k and comb not in combs:
+            combs.add(comb)
+    return sorted(combs)
+
 def get_significand(v, base=10):
     p = 1
     while not (v%(base**(p+1))==v and v%(base**p)!=v):

@@ -1,9 +1,13 @@
-import os, json, collections.abc
+import os, json, pickle, collections.abc
 from copy import deepcopy
 
+import equihash
 import equihash.loaders as loaders
 import equihash.networks as networks
 import equihash.trainers as trainers
+
+def get_equihash_path():
+    return os.path.dirname(equihash.__path__[0])
 
 def build_network(config, device):
     cls = networks.__dict__[config['network_class']]
@@ -45,7 +49,7 @@ def rebuild_flat_dict(keys, values):
     return rebuild
 
 def load_variant(task, model, variant, variant_id):
-    variant_path = os.path.join('configs', task, model, f'{variant}.json')
+    variant_path = os.path.join(get_equihash_path(), 'configs', task, model, f'{variant}.json')
     with open(variant_path, 'r') as f:
         key, *variants = json.load(f)
     if len(variants) <= variant_id:
@@ -61,11 +65,11 @@ def build_args(args):
     return rebuild_flat_dict(keys, values)        
 
 def load_config(task, model, variant=None, variant_id=None, args=None):
-    taskconfig_path = os.path.join('configs', task, 'taskconfig.json')
+    taskconfig_path = os.path.join(get_equihash_path(), 'configs', task, 'taskconfig.json')
     with open(taskconfig_path, 'r') as f:
         taskconfig = json.load(f)
 
-    modelconfig_path = os.path.join('configs', task, model, 'modelconfig.json')
+    modelconfig_path = os.path.join(get_equihash_path(), 'configs', task, model, 'modelconfig.json')
     with open(modelconfig_path, 'r') as f:
         modelconfig = json.load(f)
         
@@ -82,3 +86,23 @@ def load_config(task, model, variant=None, variant_id=None, args=None):
         config = deep_update(config, args, preserve_type=True)
         
     return config
+
+def load_results(task, database_name, model, variant=None, variant_id=None, load_checkpoint=None, which='test'):
+    config = load_config(task, model, variant=variant, variant_id=variant_id)
+    
+    #unpacking useful config item
+    name = config['name']
+    
+    #state path
+    checkpoint = 'current' if load_checkpoint is None else f'checkpoint{load_checkpoint}'
+    checkpoint_folder = os.path.join(get_equihash_path(), 'data', 'experiments', task, model, name, checkpoint)
+    
+    #fingerprints path
+    database_folder = os.path.join(checkpoint_folder, f'{which}_{database_name}')
+    results_path = inverted_index_path = os.path.join(database_folder, f'results.pkl')
+    
+    results_path = os.path.join(database_folder, f'results.pkl')
+    with open(results_path, 'rb') as f:
+        equihash_results, binary_equihash_results = pickle.load(f)
+        
+    return equihash_results, binary_equihash_results

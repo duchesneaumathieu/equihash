@@ -10,11 +10,12 @@ _types = {
 }
 
 class ResNet(CustomResNet):
-    def __init__(self, k=1000, version=18, batch_norm=True):
+    def __init__(self, k=1000, version=18, batch_norm=True, HWC=False):
         super().__init__(*_types[version], num_classes=k)
         self.k = k
         self.version = version
         self.batch_norm = batch_norm
+        self.HWC = HWC
         if batch_norm:
             self.fc = torch.nn.Sequential(
                 torch.nn.Linear(512, k, bias=None),
@@ -23,8 +24,12 @@ class ResNet(CustomResNet):
             
     def forward(self, x):
         #accepting arbitrary shapes
-        *shape, h, w, c = x.shape
-        x = x.view(-1, h, w, c).permute(0, 3, 1, 2)
+        if self.HWC:
+            *shape, h, w, c = x.shape
+            x = x.view(-1, h, w, c).permute(0, 3, 1, 2)
+        else:
+            *shape, c, h, w = x.shape
+            x = x.view(-1, c, h, w)
         out = super().forward(x)
         return out.view(*shape, self.k)
 

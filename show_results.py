@@ -1,25 +1,10 @@
 import os, pickle, argparse
 
-from equihash.utils.config import load_config
+from equihash.utils.config import load_results
 from equihash.utils import timestamp
 
 def print_results(task, database_name, model, variant, variant_id, load_checkpoint, which):
-    config = load_config(task, model, variant=variant, variant_id=variant_id)
-    
-    #unpacking useful config item
-    name = config['name']
-    
-    #state path
-    checkpoint = 'current' if load_checkpoint is None else f'checkpoint{load_checkpoint}'
-    checkpoint_folder = os.path.join('data', 'experiments', task, model, name, checkpoint)
-    
-    #fingerprints path
-    database_folder = os.path.join(checkpoint_folder, f'{which}_{database_name}')
-    results_path = inverted_index_path = os.path.join(database_folder, f'results.pkl')
-    
-    results_path = os.path.join(database_folder, f'results.pkl')
-    with open(results_path, 'rb') as f:
-        equihash_results, binary_equihash_results = pickle.load(f)
+    equihash_results, binary_equihash_results = load_results(task, database_name, model, variant, variant_id, load_checkpoint, which)
     
     equihash_results.print_results()
     print('\nBinary equihash results:')
