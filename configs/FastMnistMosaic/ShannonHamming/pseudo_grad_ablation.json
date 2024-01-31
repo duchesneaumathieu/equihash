@@ -41,11 +41,5 @@
     ["s3211_pseudo_l0.06", 3211, "pseudo-smooth", 3, false, 0.06],
     ["s3212_pseudo_l0.06", 3212, "pseudo-smooth", 3, false, 0.06],
     ["s3213_pseudo_l0.06", 3213, "pseudo-smooth", 3, false, 0.06],
-    ["s3214_pseudo_l0.06", 3214, "pseudo-smooth", 3, false, 0.06],
-    
-    ["s3210_pseudo_p4_l0.005", 3210, "pseudo-smooth", 4, true, 0.005],
-    ["s3211_pseudo_p4_l0.005", 3211, "pseudo-smooth", 4, true, 0.005],
-    ["s3212_pseudo_p4_l0.005", 3212, "pseudo-smooth", 4, true, 0.005],
-    ["s3213_pseudo_p4_l0.005", 3213, "pseudo-smooth", 4, true, 0.005],
-    ["s3214_pseudo_p4_l0.005", 3214, "pseudo-smooth", 4, true, 0.005]
+    ["s3214_pseudo_l0.06", 3214, "pseudo-smooth", 3, false, 0.06]
 ]

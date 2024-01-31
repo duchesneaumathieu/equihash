@@ -266,9 +266,9 @@ class TuplesEntropyGradient:
         
         prob_grad = torch.zeros_like(logits)
         if gradient_type == 'normal':
-            conditional_logits = self.compute_discrete_conditional_logits(logits, batch_size=batch_size, prior=prior)
-        elif gradient_type == 'pseudo-smooth':
             conditional_logits = self.compute_conditional_logits(logits, batch_size=batch_size)
+        elif gradient_type == 'pseudo-smooth':
+            conditional_logits = self.compute_discrete_conditional_logits(logits, batch_size=batch_size, prior=prior)
         elif gradient_type == 'straight-through':
             raise NotImplementedError('gradient_type=="straight-through" is not implemented.')
         else: raise ValueError(f'gradient_type must be in {self.valid_gradient_types}, got {gradient_type}.')

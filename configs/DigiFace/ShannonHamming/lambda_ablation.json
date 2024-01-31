@@ -1,0 +1,4 @@
+[
+    ["name", "seed", "trainer_kwargs:shannon_lambda", "trainer_kwargs:hamming_lambda"],
+    ["s3210_ls0.003_lh0.1", 3210, 0.003, 0.1]
+]
