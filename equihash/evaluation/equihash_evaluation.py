@@ -8,13 +8,48 @@ from equihash.utils import timestamp
 from equihash.utils.fingerprints import Fingerprints
 from .evaluation import count_integers
 
+def count_internal_collisions_from_buckets(iib, labels_iib, verbose=False):
+    nb_cols = 0
+    with iib, labels_iib:
+        for n in range(iib.size):
+            if verbose and n%500_000==0: print(timestamp(f'{n:,} / {iib.size:,}'), flush=True)
+            bucket = iib[n]
+            bucket_set = set(bucket)
+            if n != bucket[0]:
+                continue #make sure we visit each bucket only once
+            label_cols = 0
+            label_reprs = set()
+            for i in bucket:
+                label_bucket = labels_iib[i]
+                if label_bucket[0] in label_reprs:
+                    continue #already seen this label
+                label_reprs.add(label_bucket[0])
+                k = len([l for l in label_bucket if l in bucket_set])
+                label_cols += (k**2-k)//2
+            k = len(bucket)
+            nb_cols += (k**2-k)//2 - label_cols
+        if verbose: print(timestamp(f'{iib.size:,} / {iib.size:,}'), flush=True)
+    return nb_cols
+
+def count_internal_collisions_from_buckets_slow(iib, labels_iib, verbose=False):
+    nb_cols = 0
+    with iib, labels_iib:
+        for n in range(iib.size):
+            if verbose and n%500_000==0: print(timestamp(f'{n:,} / {iib.size:,}'), flush=True)
+            ground_truth = set(labels_iib[n])
+            #check that i > n to avoid double counts
+            nb_cols += len([i for i in iib[n] if i > n and i not in ground_truth])
+        if verbose: print(timestamp(f'{iib.size:,} / {iib.size:,}'), flush=True)
+    return nb_cols
+
 def count_internal_collisions(ii, labels_ii, verbose=False):
     nb_cols = 0
-    for n, (fingerprint, label) in enumerate(zip(ii.codes, labels_ii.codes)):
-        if verbose and n%500_000==0: print(timestamp(f'{n:,} / {len(ii.codes):,}'), flush=True)
-        ground_truth = set(labels_ii[label])
-        #check that i > n to avoid double counts
-        nb_cols += len([i for i in ii[fingerprint] if i > n and i not in ground_truth])
+    with ii, labels_ii:
+        for n, (fingerprint, label) in enumerate(zip(ii.codes, labels_ii.codes)):
+            if verbose and n%500_000==0: print(timestamp(f'{n:,} / {len(ii.codes):,}'), flush=True)
+            ground_truth = set(labels_ii[label])
+            #check that i > n to avoid double counts
+            nb_cols += len([i for i in ii[fingerprint] if i > n and i not in ground_truth])
     if verbose: print(timestamp(f'{len(ii.codes):,} / {len(ii.codes):,}'), flush=True)
     return nb_cols
 
@@ -28,21 +63,22 @@ def get_queries_results(ii, queries, ground_truths, verbose=False):
     if verbose: print(timestamp(f'{len(queries):,} / {len(queries):,}'), flush=True)
     return queries_results
 
-def get_equihash_results(ii, labels_ii, positive_queries, negative_queries, ground_truths, verbose=False):
-    if verbose: print(timestamp(f'Computing internal collision of a database with {len(ii.codes):,} items.'), flush=True)
-    nb_database_internal_collisions = count_internal_collisions(ii, labels_ii, verbose=verbose)
+def get_equihash_results(ii, internal_collisions, positive_queries, negative_queries, ground_truths, verbose=False):
+    if positive_queries is not None:
+        if verbose: print(timestamp(f'Computing positive queries results: {len(positive_queries):,} items...'), end='', flush=True)
+        positive_queries_results = get_queries_results(ii, positive_queries, ground_truths, verbose=False)
+        if verbose: print(f' done.', flush=True)
+    else: positive_queries_results = list()
     
-    if verbose: print(timestamp(f'Computing positive queries results: {len(positive_queries):,} items...'), end='', flush=True)
-    positive_queries_results = get_queries_results(ii, positive_queries, ground_truths, verbose=False)
-    if verbose: print(f' done.', flush=True)
-    
-    if verbose: print(timestamp(f'Computing positive queries results: {len(negative_queries):,} items...'), end='', flush=True)
-    negative_queries_results = get_queries_results(ii, negative_queries, ([] for q in negative_queries), verbose=False)
-    if verbose: print(f' done.', flush=True)
+    if negative_queries is not None:
+        if verbose: print(timestamp(f'Computing positive queries results: {len(negative_queries):,} items...'), end='', flush=True)
+        negative_queries_results = get_queries_results(ii, negative_queries, ([] for q in negative_queries), verbose=False)
+        if verbose: print(f' done.', flush=True)
+    else: negative_queries_results = list()
     
     return EquihashResults(
         database_size = len(ii.codes),
-        nb_database_internal_collisions = nb_database_internal_collisions,
+        nb_database_internal_collisions = internal_collisions,
         positive_queries_results = positive_queries_results,
         negative_queries_results = negative_queries_results,
     )
@@ -131,6 +167,14 @@ class QueryResults:
         return 1.0 if are_empty_sets else intersection / union
     
     @property
+    def is_complete_retrieval(self):
+        return len(self.ground_truth)==len(self.relevant_collisions)
+    
+    @property
+    def is_sound_retrieval(self):
+        return len(self.retrieved)==len(self.relevant_collisions)
+    
+    @property
     def is_perfect_retrieval(self):
         return set(self.ground_truth) == set(self.retrieved)
 
@@ -139,15 +183,21 @@ class EquiDictResults:
     positive_queries_results: List[QueryResults]
     
     def recall(self):
+        if not self.positive_queries_results:
+            return float('nan')
         nb_relevant = sum(r.nb_relevant for r in self.positive_queries_results)
         nb_relevant_collisions = sum(r.nb_relevant_collisions for r in self.positive_queries_results)
         return nb_relevant_collisions / nb_relevant
     
     def average_jaccard_index(self):
+        if not self.positive_queries_results:
+            return float('nan')
         jaccard_index_sum = sum(r.jaccard_index for r in self.positive_queries_results)
         return jaccard_index_sum / len(self.positive_queries_results)
     
     def perfect_retrieval_rate(self):
+        if not self.positive_queries_results:
+            return float('nan')
         nb_perfect_retrieval = sum(r.is_perfect_retrieval for r in self.positive_queries_results)
         return nb_perfect_retrieval / len(self.positive_queries_results)
     
@@ -163,10 +213,14 @@ class EquiSetResults:
     negative_queries_results: List[QueryResults]
     
     def true_positive_rate(self):
+        if not self.positive_queries_results:
+            return float('nan')
         nb_true_positive = sum(r.is_equiset_true_positive for r in self.positive_queries_results)
         return nb_true_positive / len(self.positive_queries_results)
     
     def false_positive_rate(self):
+        if not self.negative_queries_results:
+            return float('nan')
         nb_false_positive = sum(r.is_equiset_false_positive for r in self.negative_queries_results)
         return nb_false_positive / len(self.negative_queries_results)
     

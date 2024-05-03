@@ -48,6 +48,12 @@ def rebuild_flat_dict(keys, values):
         d[leaf] = v
     return rebuild
 
+def load_variants(task, model, variant):
+    variant_path = os.path.join(get_equihash_path(), 'configs', task, model, f'{variant}.json')
+    with open(variant_path, 'r') as f:
+        key, *variants = json.load(f)
+    return [rebuild_flat_dict(key, v) for v in variants]
+
 def load_variant(task, model, variant, variant_id):
     variant_path = os.path.join(get_equihash_path(), 'configs', task, model, f'{variant}.json')
     with open(variant_path, 'r') as f:

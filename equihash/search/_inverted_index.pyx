@@ -56,3 +56,28 @@ def cython_search(unsigned char [:] code, unsigned int [:] heads, unsigned int [
             index.append(h)
         h = links[h]
     return index
+
+def cython_build_buckets(
+    unsigned int [:] heads, unsigned int [:] links, unsigned char [:,:] codes,
+    unsigned int [:,:] bheads, unsigned int [:] bbucks
+):
+    cdef unsigned char [:] code
+    cdef unsigned int i, h, k
+    cdef unsigned int a
+    cdef unsigned int b = 0
+    for k in range(len(codes)):
+        if bheads[k][0] == MYNULL: #quick check to see if this is a new bucket
+            code = codes[k]
+            h = heads[FNV1(code)%len(heads)]
+            a = b
+            while h != MYNULL:
+                if memoryview_equal(code, codes[h]):
+                    bbucks[b] = h
+                    b += 1
+                h = links[h]
+            i = a
+            while i < b:
+                h = bbucks[i]
+                bheads[h][0] = a
+                bheads[h][1] = b
+                i += 1

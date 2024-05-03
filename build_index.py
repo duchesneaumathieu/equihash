@@ -2,7 +2,7 @@ import numpy as np
 import os, sys, h5py, argparse
 
 from equihash.utils import timestamp
-from equihash.search import InvertedIndex
+from equihash.search import InvertedIndex, InvertedIndexBuckets
 from equihash.utils.config import load_config
 
 def build_inverted_index(task, database_name, model, variant, variant_id, load_checkpoint, which, force, verbose=False):
@@ -19,6 +19,7 @@ def build_inverted_index(task, database_name, model, variant, variant_id, load_c
     database_folder = os.path.join(checkpoint_folder, f'{which}_{database_name}')
     fingerprints_path = os.path.join(database_folder, f'database_fingerprints.hdf5')
     inverted_index_path = os.path.join(database_folder, f'database_inverted_index.hdf5')
+    inverted_index_buckets_path = os.path.join(database_folder, f'database_inverted_index_buckets.hdf5')
     
     if os.path.exists(inverted_index_path) and not force:
         raise FileExistsError(inverted_index_path)
@@ -34,6 +35,14 @@ def build_inverted_index(task, database_name, model, variant, variant_id, load_c
     if verbose: print(timestamp(f'Build completed.'), flush=True)
     ii.save()
     if verbose: print(timestamp(f'Inverted index saved.'), flush=True)
+    
+    if verbose: print(timestamp(f'Start building the inverted index buckets.'), flush=True)
+    iib = InvertedIndexBuckets(inverted_index_buckets_path, 'w')
+    iib.build(ii)
+    if verbose: print(timestamp(f'Build completed.'), flush=True)
+    iib.save()
+    if verbose: print(timestamp(f'Inverted index buckets saved.'), flush=True)
+    
     return ii
 
 if __name__ == '__main__':

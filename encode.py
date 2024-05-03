@@ -52,6 +52,51 @@ def _encode(net, loader, database_labels_path, which_labels, fingerprints_path, 
                 f['size'][0] = ncodes; f.flush() #saving progress
                 if verbose: print(timestamp(f'{ncodes:,} documents encoded'), flush=True)
                     
+def _encode_queries(net, loader, database_labels_path, which_labels, fingerprints_path, logits_path, seed, flush_freq, verbose):
+    #which_labels in ('positive_queries', 'negative_queries')
+    nbytes = net.k//8
+    
+    with h5py.File(database_labels_path, 'r') as f:
+        job_size = len(f[which_labels])
+        labels = f[which_labels][:]
+    
+    database = ProceduralLabelsDB(labels, loader, seed=seed)
+    if flush_freq % database.chunk_size != 0:
+        raise ValueError(f'flush_freq ({flush_freq}) must be a multiple of chunk_size ({database.chunk_size})')
+    
+    job_beg, job_end = 0, len(database)
+    if verbose: print(timestamp(f'Encoding {which_labels} from {job_beg:,} to {job_end:,}'), flush=True)
+    
+    if not os.path.exists(fingerprints_path):
+        with h5py.File(fingerprints_path, 'x') as f:
+            f.create_dataset('size', shape=(1,), dtype=np.uint32)
+            f.create_dataset('codes', shape=(job_size, nbytes), dtype=np.uint8)
+    if not os.path.exists(logits_path):
+        with h5py.File(logits_path, 'x') as f:
+            f.create_dataset('size', shape=(1,), dtype=np.uint32)
+            f.create_dataset('logits', shape=(job_size, net.k), dtype=np.float32)
+    
+    bs = database.chunk_size
+    fingerprints = Fingerprints(device=loader.device)
+    with torch.no_grad(), h5py.File(fingerprints_path, 'r+') as f, h5py.File(logits_path, 'r+') as g:
+        ncodes = min(f['size'][0], g['size'][0])
+        codes = f['codes']
+        logits = g['logits']
+        if verbose: print(timestamp(f'Starts encoding {which_labels} from {job_beg+ncodes:,} to {job_end:,}'), flush=True)
+        while ncodes < job_size:
+            batch = database[job_beg+ncodes:job_beg+ncodes+bs]
+            out = net(batch)
+            logits[ncodes:ncodes+bs] = out.cpu().numpy()
+            codes[ncodes:ncodes+bs] = fingerprints.bool_to_uint8(0<out).cpu().numpy()
+            ncodes += bs
+            if ncodes%flush_freq==0:
+                codes.flush() #flush codes before we set size
+                logits.flush() #flush codes before we set size
+                f['size'][0] = ncodes
+                g['size'][0] = ncodes
+                f.flush(); g.flush() #saving progress
+                if verbose: print(timestamp(f'{ncodes:,} documents encoded'), flush=True)
+
 def hinge_encode(net, loader, database_labels_path, fingerprints_path, flush_freq, verbose):
     nbytes = net.k//8
     
@@ -94,7 +139,7 @@ def encode(task, database_name, model, variant, variant_id, load_checkpoint, whi
 
     #unpacking useful config item
     name = config['name']
-    seed = config['seed']
+    seed = 0xace #config['seed']
     
     #making sure everything is deterministic
     torch.backends.cudnn.benchmark = False
@@ -129,18 +174,19 @@ def encode(task, database_name, model, variant, variant_id, load_checkpoint, whi
     if net.k % 8 != 0:
         raise NotImplementedError('nbits must be a multiple of 8')
     
-    
     if verbose: print() #newline
     _encode(net, loader, database_labels_path, 'database', fingerprints_path, seed, flush_freq, job_id, nb_jobs, verbose=verbose)
     if job_id==0:
         if verbose: print() #newline
         positive_path = os.path.join(fingerprints_folder, 'positive_queries_fingerprints.hdf5')
-        _encode(net, loader, database_labels_path,
-                'positive_queries', positive_path, seed, flush_freq, job_id=0, nb_jobs=None, verbose=verbose)
+        positive_logits_path = os.path.join(fingerprints_folder, 'positive_queries_logits.hdf5')
+        _encode_queries(net, loader, database_labels_path,
+                'positive_queries', positive_path, positive_logits_path, seed, flush_freq, verbose=verbose)
         if verbose: print() #newline
         negative_path = os.path.join(fingerprints_folder, 'negative_queries_fingerprints.hdf5')
-        _encode(net, loader, database_labels_path,
-                'negative_queries', negative_path, seed, flush_freq, job_id=0, nb_jobs=None, verbose=verbose)
+        negative_logits_path = os.path.join(fingerprints_folder, 'negative_queries_logits.hdf5')
+        _encode_queries(net, loader, database_labels_path,
+                'negative_queries', negative_path, negative_logits_path, seed, flush_freq, verbose=verbose)
         if verbose: print() #newline
         hinge_triplets_path = os.path.join(fingerprints_folder, 'hinge_triplets_fingerprints.hdf5')
         hinge_encode(net, loader, database_labels_path, hinge_triplets_path, flush_freq, verbose)

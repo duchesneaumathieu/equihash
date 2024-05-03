@@ -12,7 +12,7 @@ class ProceduralDB(ABC):
         self.size = size
         self.chunk_size = chunk_size
         self.torch_generator = torch.Generator(device=device)
-        self.numpy_generator = np.random.RandomState()
+        self.numpy_generator = np.random.default_rng()
         
     @abstractmethod
     def generate_slice(self, beg, end, torch_generator, numpy_generator):
@@ -23,7 +23,7 @@ class ProceduralDB(ABC):
     
     def get_chunk_generator(self, chunk_id):
         seed = 0xffff*chunk_id + self.seed
-        self.numpy_generator.seed(seed)
+        self.numpy_generator = np.random.default_rng(seed)
         self.torch_generator.manual_seed(seed)
         return self.torch_generator, self.numpy_generator
     

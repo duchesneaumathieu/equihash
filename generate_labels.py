@@ -1,7 +1,7 @@
 import os, h5py, pickle, argparse
 import numpy as np
 from equihash.utils import timestamp
-from equihash.search import InvertedIndex
+from equihash.search import InvertedIndex, InvertedIndexBuckets
 from equihash.utils.unique_randint import unique_randint
 
 def uint64_to_uint8(uint64):
@@ -29,7 +29,7 @@ class LabelsGenerator:
         self.mosaic_size = np.prod(mosaic_shape) if mosaic_shape else 1
         assert 64/np.log2(bank_size) > self.mosaic_size, 'nb_labels >= 2**64'
         self.nb_labels = bank_size**self.mosaic_size
-        self.dtype = [np.uint8, np.uint16, np.uint32, np.uint64][np.argmax(np.log2(self.nb_labels) < [8,16,32,64])]
+        self.dtype = [np.uint8, np.uint16, np.uint32, np.uint64][np.argmax(np.log2(bank_size) < [8,16,32,64])]
         
     def generate_labels_uint64(self, nb_samples, rng):
         return rng.randint(0, self.nb_labels, nb_samples, dtype=np.uint64)
@@ -98,6 +98,7 @@ def main(task, name, bank_size, mosaic_shape, database_size,
          nb_positive_queries, nb_negative_queries, nb_negative_pairs, seed, force, verbose=False):
     path = os.path.join('data', 'labels', task, f'{name}.hdf5')
     ii_path = os.path.join('data', 'labels', task, f'{name}_inverted_index.hdf5')
+    iib_path = os.path.join('data', 'labels', task, f'{name}_inverted_index_buckets.hdf5')
     ground_truth_path = os.path.join('data', 'labels', task, f'{name}_ground_truth.pkl')
     file_exists = os.path.exists(path) or os.path.exists(ii_path) or os.path.exists(ground_truth_path)
     if file_exists and not force:
@@ -106,15 +107,40 @@ def main(task, name, bank_size, mosaic_shape, database_size,
     
     rng = np.random.RandomState(seed)
     labels_gen = LabelsGenerator(bank_size=bank_size, mosaic_shape=mosaic_shape)
+    if verbose: print(timestamp(f'Labels dtype={np.zeros((), dtype=labels_gen.dtype).dtype}.'), flush=True)
     
-    if verbose: print(timestamp(f'Generating the {database_size:,} labels (seed={seed})...'), end='', flush=True)
-    codes = labels_gen.generate_labels_uint8(database_size, rng)
-    labels = labels_gen.labels_from_uint8(codes)
+    msg = f'Generating the {database_size:,} labels (seed={seed})...'
+    if verbose: print(timestamp(msg), end='\r', flush=True)
+    codes = np.zeros((database_size, 8), dtype=np.uint8)
+    labels = np.zeros((database_size, *mosaic_shape), dtype=labels_gen.dtype)
+    batch_size = 1_000_000
+    nb_batches = database_size // batch_size + (database_size % batch_size != 0)
+    for i in range(nb_batches): #doing it in batch for big databases.
+        if verbose: print(timestamp(f'{msg} {int(100*i/nb_batches)}%'), end='\r')
+        a, b = i*batch_size, min(database_size, (i+1)*batch_size)
+        labels_uint64 = labels_gen.generate_labels_uint64(b-a, rng)
+        codes[a:b] = uint64_to_uint8(labels_uint64)
+        labels[a:b] = labels_gen.labels_from_uint64(labels_uint64)
+    if verbose: print(timestamp(f'{msg} Done.'), flush=True)
+        
+    if verbose: print(timestamp(f'Saving database at {path}...'), end='', flush=True)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with h5py.File(path, 'w') as f:
+        f.create_dataset('database', data=labels)
+    del labels #free some memory, useful for a large database.
     if verbose: print(' Done.', flush=True)
     
     if verbose: print(timestamp('Building the inverted index...'), end='', flush=True)
     ii = InvertedIndex(path=ii_path, mode='w').build(codes=codes, nb_heads=2*database_size)
     if verbose: print(' Done.', flush=True)
+        
+    if verbose: print(timestamp(f'Start building the inverted index buckets.'), flush=True)
+    iib = InvertedIndexBuckets(iib_path, 'w')
+    iib.build(ii)
+    if verbose: print(timestamp(f'Build completed.'), flush=True)
+    iib.save()
+    del iib #free memory
+    if verbose: print(timestamp(f'Inverted index buckets saved.'), flush=True)
     
     if verbose: print(timestamp(f'Generating {nb_positive_queries:,} positive queries...'), end='', flush=True)
     positive_queries_uint8, ground_truth = generate_positive_queries(nb_positive_queries, ii, rng=rng)
@@ -145,10 +171,8 @@ def main(task, name, bank_size, mosaic_shape, database_size,
     negative_pairs = labels_gen.labels_from_uint64(negative_pairs_uint64)
     if verbose: print(' Done.', flush=True)
     
-    if verbose: print(timestamp(f'Saving {path}...'), end='', flush=True)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with h5py.File(path, 'w') as f:
-        f.create_dataset('database', data=labels)
+    if verbose: print(timestamp(f'Saving queries at {path}...'), end='', flush=True)
+    with h5py.File(path, 'r+') as f:
         f.create_dataset('positive_queries', data=positive_queries)
         f.create_dataset('negative_queries', data=negative_queries)
         f.create_dataset('negative_pairs', data=negative_pairs)
