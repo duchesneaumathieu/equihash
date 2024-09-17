@@ -1,141 +1,53 @@
-# Learning an Equihash to Find a Needle in a Haystack
-This repository is the official implementation of Learning an Equihash to Find a Needle in a Haystack.
+# Learning Deep Equihash Functions
+This repository is the official implementation of my thesis: “Learning Deep Equihash Functions.”
 
-![Perfect retrieval rates on ProcDB](https://github.com/duchesneaumathieu/equihash/blob/main/notebooks/perfect_retrieval_rate.png)
-
-## Requirements
-To install requirements:
-
+## Installation
 ```setup
 pip install -r requirements.txt
 python setup.py build_ext --inplace
 ```
 
-Download ProcDB files (~25GB) to train a model from scratch or encode the database and queries:
-```sh
-pip install gdown
-gdown --folder 1voIlQpQYcY-V8KTZOCOTHsdpbCNHtaRy
-```
+## Required Downloads to construct the OpenImages Mosaics
+The OpenImages mosaics are constructed from the OpenImage dataset. Each of the three splits (“train,” “valid,” and “test”) contains 100K images taken from OpenImages and cropped to 180x180 at their center. 
 
-## Equihash training and evaluation pipeline
+1) The train split needs to be at `data/datasets/OpenImages/hdf5/train.hdf5`. (9.5 GB)
+2) The valid split needs to be at `data/datasets/OpenImages/hdf5/valid.hdf5`. (9.5 GB)
+3) The test split needs to be at `data/datasets/OpenImages/hdf5/test.hdf5`. (9.5 GB)
+
+After merging two images, three layers of noise are applied to the 2x1 mosaic. We use Perlin noise for one of these layers (the spatial distortion), which we precomputed for efficiency.
+
+1) This file needs to be at `data/datasets/PerlinNoise/perlin180x270.hdf5`.
+
+Finally, we used a database containing 1 billion mosaics to evaluate our model in a large-scale scenario. These mosaics are procedurally generated to save memory. However, some files still need to be downloaded to evaluate our models on this database.
+
+1) `this` keeps track of the two images we need to construct each mosaic in the database.
+2) 12321
+
+Each file must be in this folder: `data/datasets/labels/OpenImages`.
+
+## Required Downloads to construct the NoisyMnist Mosaics
+The NoisyMnist mosaics are constructed from the MNIST dataset. We use this HDF5 file. It contains the 70K MNIST images we used for the three splits and needs to be at `data/datasets/Mnsit/mnist.hdf5`.
+
+Like OpenImages mosaics, the following files must be at `data/datasets/labels/OpenImages`.
+
+## Training, Encoding, Indexing, and Evaluating
+We provide all the scripts required for the project. Every script has a `--help` option describing its parameters.
+
 1) Train the model with `train.py`
-2) Encode the database with `encode_mosaics.py`
-3) Build the inverted index with `build_index.py`
-4) Encode the queries, again with `encode_mosaics.py`
-5) Evaluate the inverted index on those queries with `eval_index.py`
+2) Encode a database into fingerprints (and the queries) w.r.t. a specific model with `encode.py`
+3) Build the inverted index from a database of fingerprints with `build_index.py`
+4) Evaluate the inverted index on those queries with `evaluate_binary_equihash.py`
 
-## Training
-To train the models in the paper, run:
-```sh
-python train.py configs/natural_mosaic_shannon_hamming_64c3.json -p `seq 0 5000 100000` -f 100 -e -D 51966
-python train.py configs/natural_mosaic_shannon_hamming_64c3_32c4.json -p `seq 0 5000 100000` -f 100 -e -D 51966
-python train.py configs/natural_mosaic_hashnet_0.1a.json -p `seq 0 5000 100000` -f 100 -e -D 51966
-python train.py configs/natural_mosaic_hashnet_0.15a.json -p `seq 0 5000 100000` -f 100 -e -D 51966
-python train.py configs/natural_mosaic_hashnet_0.2a.json -p `seq 0 5000 100000` -f 100 -e -D 51966
-```
-With the training seed set to 51966 (0xCAFE), the networks should be the same as in the paper.
-Those commands will create checkpoints in the `states/` folder. Each network takes about one week to train and requires a GPU with at least 30GB of memory.
+Since the database is enormous, splitting it to work across multiple GPUs when encoding a database is very practical. The `encode.py` script provides the necessary option to do so. Afterward, the `merge.py` script can merge the outputs back together.
 
-Use `python train.py --help` for more options. The configs used in the paper are in `configs/`. Creating a new config file to train a different model is possible.
+To construct a new database, we need to generate the files used for the procedural generation of our database and the evaluation of our model on that database. This can be done with the `generate_labels.py` script.
 
-## Encoding the ProcDB database
-To use the same database as in the paper, use the procedural seed 2766 (0xACE). We set `-w valid` to use the validation image bank.
-```sh
-python encode_mosaics.py configs/natural_mosaic_shannon_hamming_64c3.json -l100000 -iimages/natural_index1Bx2.hdf5 -wvalid -D2766
-python encode_mosaics.py configs/natural_mosaic_shannon_hamming_64c3_32c4.json -l100000 -iimages/natural_index1Bx2.hdf5 -wvalid -D2766
-python encode_mosaics.py configs/natural_mosaic_hashnet_0.2a.json -l100000 -iimages/natural_index1Bx2.hdf5 -wvalid -D2766
-python encode_mosaics.py configs/natural_mosaic_hashnet_0.15a.json -l100000 -iimages/natural_index1Bx2.hdf5 -wvalid -D2766
-python encode_mosaics.py configs/natural_mosaic_hashnet_0.1a.json -l100000 -iimages/natural_index1Bx2.hdf5 -wvalid -D2766
-```
-Each command takes about 160 hours (with a GPU) and produces an 8GB hdf5 file in `fingerprints/`. Those can be parallelized with the `-n` and `-j` options. Use `python encode_mosaics.py --help` for more information.
-If parallelization is used, merging the chunks is needed (run `python merge.py --help`).
+## Replications of Our Results
+...
 
-## Building the inverted index
-To build the database's inverted index, run:
-```sh
-python build_index.py configs/natural_mosaic_shannon_hamming_64c3.json -l100000 -wvalid -D2766
-python build_index.py configs/natural_mosaic_shannon_hamming_64c3_32c4.json -l100000 -wvalid -D2766
-python build_index.py configs/natural_mosaic_hashnet_0.2a.json -l100000 -wvalid -D2766
-python build_index.py configs/natural_mosaic_hashnet_0.15a.json -l100000 -wvalid -D2766
-python build_index.py configs/natural_mosaic_hashnet_0.1a.json -l100000 -wvalid -D2766
-```
-Each command takes about 5 minutes to run, creating a 20GB hdf5 file in `indexes/`.
-Use `python build_index.py --help` for more options.
+## Pre-Trained Models
+The links to the pre-trained models
 
-## Encoding the queries
-Similar to encoding the database, however, we set `-L1000000` to only encode the first 1M queries. Furthermore, we use the seed 3054 (0xBEE). If we use 2766, the queries will be the same as the first 1M chunk of the database (and every model would have 100% recall). 
-```sh
-python encode_mosaics.py configs/natural_mosaic_shannon_hamming_64c3.json -l100000 -iimages/natural_index1Bx2.hdf5 -wvalid -D3054 -L1000000
-python encode_mosaics.py configs/natural_mosaic_shannon_hamming_64c3_32c4.json -l100000 -iimages/natural_index1Bx2.hdf5 -wvalid -D3054 -L1000000
-python encode_mosaics.py configs/natural_mosaic_hashnet_0.2a.json -l100000 -iimages/natural_index1Bx2.hdf5 -wvalid -D3054 -L1000000
-python encode_mosaics.py configs/natural_mosaic_hashnet_0.15a.json -l100000 -iimages/natural_index1Bx2.hdf5 -wvalid -D3054 -L1000000
-python encode_mosaics.py configs/natural_mosaic_hashnet_0.1a.json -l100000 -iimages/natural_index1Bx2.hdf5 -wvalid -D3054 -L1000000
-```
-Each command takes about 10 minutes (with a GPU) and creates an 8MB hdf5 file in `fingerprints/`.
+## Pre-Computed Inverted Index
 
-## Evaluation of the equihash
-To evaluate the models, run:
-```sh
-python eval_index.py -Iindexes/natural_mosaic_shannon_hamming_64c3_step_100000_valid_index_2766.hdf5 -Qfingerprints/natural_mosaic_shannon_hamming_64c3_step_100000_valid_1000000fingerprints_3054.hdf5 -Sresults/natural_mosaic_shannon_hamming_64c3_step_100000_valid.pkl
-python eval_index.py -Iindexes/natural_mosaic_shannon_hamming_64c3_32c4_step_100000_valid_index_2766.hdf5 -Qfingerprints/natural_mosaic_shannon_hamming_64c3_32c4_step_100000_valid_1000000fingerprints_3054.hdf5 -Sresults/natural_mosaic_shannon_hamming_64c3_32c4_step_100000_valid.pkl
-python eval_index.py -Iindexes/natural_mosaic_hashnet_0.2a_step_100000_valid_index_2766.hdf5 -Qfingerprints/natural_mosaic_hashnet_0.2a_step_100000_valid_1000000fingerprints_3054.hdf5 -Sresults/natural_mosaic_hashnet_0.2a_step_100000_valid.pkl
-python eval_index.py -Iindexes/natural_mosaic_hashnet_0.15a_step_100000_valid_index_2766.hdf5 -Qfingerprints/natural_mosaic_hashnet_0.15a_step_100000_valid_1000000fingerprints_3054.hdf5 -Sresults/natural_mosaic_hashnet_0.15a_step_100000_valid.pkl
-python eval_index.py -Iindexes/natural_mosaic_hashnet_0.1a_step_100000_valid_index_2766.hdf5 -Qfingerprints/natural_mosaic_hashnet_0.1a_step_100000_valid_1000000fingerprints_3054.hdf5 -Sresults/natural_mosaic_hashnet_0.1a_step_100000_valid.pkl
-```
-Use `python eval_index.py --help` for more options. Each command will produce one row of Table 1 from the paper.
-
-The `-S` options will save the following results w.r.t. each query:
-  1) Was it a perfect retrieval
-  2) Was the relevant data in the bucket
-  3) The bucket size
-
-Those are used to create the graphs of the paper. (see notebooks/graphs.ipynb)
-
-
-## Pre-trained models
-To download the trained models, run:
-```sh
-cd states
-gdown 1tsDqsF8f5Gudxnp7yi2u7zqSs11JL336 #for natural_mosaic_shannon_hamming_64c3_step_100000.pth
-gdown 1r8YrdOsznJNN66pSMU2uqdtQXCKiR8eM #for natural_mosaic_shannon_hamming_64c3_32c4_step_100000.pth
-gdown 1QIIAxzNu32zbW2KduDUq5CRUIgW-P9P5 #for natural_mosaic_hashnet_0.1a_step_100000.pth
-gdown 1tJDReM7bF5wQhi70TR2p1v6ryXjEXoRM #for natural_mosaic_hashnet_0.15a_step_100000.pth
-gdown 1P7JmWbYxfJHiW-M7RP_6oc3DVzxAmO-t #for natural_mosaic_hashnet_0.2a_step_100000.pth
-```
-
-## Pre-encoded database
-To download the encoded fingerprints of the database, run:
-```sh
-cd fingerprints
-gdown 1tcGvEltvP25DySyilJnnQs2qmWTUfwFZ #for natural_mosaic_shannon_hamming_64c3_step_100000_valid_fingerprints_2766.hdf5
-gdown 1p_dAbxfzZg6pgu9lWwzUQAnlKk22mE0l #for natural_mosaic_shannon_hamming_64c3_32c4_step_100000_valid_fingerprints_2766.hdf5
-gdown 1uirse-3n8u0znGjdHiH3LlIYbMq4DMaJ #for natural_mosaic_hashnet_0.1a_step_100000_valid_fingerprints_2766.hdf5
-gdown 16cL0F8OwYAV8S5oIwoivRiQ6RfLkQhrw #for natural_mosaic_hashnet_0.15a_step_100000_valid_fingerprints_2766.hdf5
-gdown 17faNLAmJERjxQziQZnb8jAlZPC9jQblQ #for natural_mosaic_hashnet_0.2a_step_100000_valid_fingerprints_2766.hdf5
-```
-
-## Pre-encoded queries
-To download the encoded fingerprints of the queries, run:
-```sh
-cd fingerprints
-gdown 1ZQgIg1bKSF_5co2QmG2sSH1ykO0J90S3 #for natural_mosaic_shannon_hamming_64c3_step_100000_valid_1000000fingerprints_3054.hdf5
-gdown 1nG3hM91U1rxdlN2Gtgpd4BEsDB7Nacox #for natural_mosaic_shannon_hamming_64c3_32c4_step_100000_valid_1000000fingerprints_3054.hdf5
-gdown 1X3-H6kXKmGeCLcx5iaw7wb_wkNpl6DPJ #for natural_mosaic_hashnet_0.1a_step_100000_valid_1000000fingerprints_3054.hdf5
-gdown 1gJxzztNWR3SuSNLDeiNh2Ib9_q0MkZz5 #for natural_mosaic_hashnet_0.15a_step_100000_valid_1000000fingerprints_3054.hdf5
-gdown 1uAOAVvpwLL0y_sGpGHS3mP9OqAWOaQqI #for natural_mosaic_hashnet_0.2a_step_100000_valid_1000000fingerprints_3054.hdf5
-```
-
-## Results
-
-Table 1: Perfect retrieval rates on ProcDB. Error bars are below 0.1%
-| Database size      | 1M              | 10M            | 100M           | 1B             |
-| ------------------ |---------------- | -------------- | -------------- | -------------- |
-| SH (64c3)          |     48.0%       |      47.2%     |      43.3%     |      31.5%     |
-| SH (64c3+32c4)     |     46.7%       |      46.6%     |      45.8%     |      42.7%     |
-| HashNet (α=0.2)    |     26.7%       |      19.3%     |      11.3%     |       5.1%     |
-| HashNet (α=0.15)   |     28.7%       |      17.9%     |       8.3%     |       2.9%     |
-| HashNet (α=0.1)    |     11.8%       |       3.7%     |       1.0%     |       0.2%     |
-
-![Hamming distance pmf between negative pairs](https://github.com/duchesneaumathieu/equihash/blob/main/notebooks/negative_hamming_distance_pmf.png)
-
-![Retrieved bucket size distribution in a 1B database](https://github.com/duchesneaumathieu/equihash/blob/main/notebooks/retrieved_bucket_size_distribution_1b.png)
+## Pre-Encoded Queries
