@@ -82,7 +82,8 @@ class ProceduralDB(ABC):
         return getattr(self, f'_getitem_{k_type}')(k)
     
 class ProceduralLabelsDB(ProceduralDB):
-    def __init__(self, labels, loader, seed):
+    def __init__(self, labels, loader, seed, use_torch=False):
+        #if use_torch: cast the labels in Tensor.int64 and on loader.device in the init
         if not (0 <= seed < 0xffff//3):
             raise ValueError(f'the seed must be between 0 and {0xffff//3}')
         seed = 3*seed
@@ -90,10 +91,13 @@ class ProceduralLabelsDB(ProceduralDB):
         elif loader.which == 'test': seed += 2
         
         super().__init__(seed, len(labels), chunk_size=500, device=loader.device)
-        self.labels = labels
+        self.use_torch = use_torch
+        if use_torch:
+            self.labels = torch.tensor(labels.astype(int), device=loader.device)
+        else: self.labels = labels
         self.loader = loader
             
     def generate_slice(self, beg, end, torch_generator, numpy_generator):
         labels = self.labels[beg:end]
-        labels = torch.tensor(labels.astype(int))
+        if not self.use_torch: labels = torch.tensor(labels.astype(int))
         return self.loader.batch_from_labels(labels, torch_generator=torch_generator, numpy_generator=numpy_generator)
