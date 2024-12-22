@@ -129,6 +129,7 @@ class ShannonHammingTrainer:
         self.loader = loader
         self.training_log = TrainingLogs()
         self.nb_batch_per_step = nb_batch_per_step
+        self.optim_kwargs = optim_kwargs
         self.optim = torch.optim.__dict__[optim_class](net.parameters(), **optim_kwargs)
         self.grad_clipper = ValueGradClipper(net.parameters(), clip_value)
         
@@ -234,6 +235,9 @@ class ShannonHammingTrainer:
     def load_state_dict(self, state):
         self.step = state['step']
         self.loader.set_state(state['loader'])
+        for group in state['optim']['param_groups']:
+            #update learning rate (and more) if changed
+            group.update(self.optim_kwargs)
         self.optim.load_state_dict(state['optim'])
         self.training_log.load_state_dict(state['training_log'])
         return self
