@@ -22,7 +22,7 @@ python setup.py build_ext --inplace
 ### OpenImages Mosaics
 The dataset is available on Hugging Face [duchema/open-images-100k-180x180](https://huggingface.co/datasets/duchema/open-images-100k-180x180). It is built from the [Open Images dataset](https://storage.googleapis.com/openimages/web/index.html). Each split (train, valid, and test) contains 100K images, cropped to 180x180 pixels. Ensure the three HDF5 files are located at `data/datasets/OpenImages/hdf5/`.
 
-To construct a 2x1 mosaic, we add three layers of noise, one of which uses [precomputed Perlin noise](https://drive.google.com/file/d/1Vnj9C7GiTeRQTj8Tvf4alHckOphr68ZI/view?usp=sharing) (6 GB). Place the file in `data/datasets/PerlinNoise/perlin180x270.hdf5`.
+To construct a 2x1 mosaic, we add three layers of noise, one of which uses [precomputed Perlin noise](https://huggingface.co/datasets/duchema/perlin180x270) (6 GB). Place the file in `data/datasets/PerlinNoise/perlin180x270.hdf5`.
 
 ### NoisyMnist Mosaic
 The NoisyMnist mosaic dataset is constructed from the [MNIST dataset](https://drive.google.com/file/d/1_9hENa-Zh58osZW6sZTIIo-tjFkZ28N7/view?usp=sharing) (50 MB). This file contains the 70K MNIST images in the HDF5 format. Ensure this file is located at `data/datasets/Mnist/mnist.hdf5`.
