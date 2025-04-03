@@ -1,5 +1,5 @@
 # Learning Deep Equihash Functions
-This repository contains the official implementation of **Learning Deep Equihash Functions**, as detailed in my thesis.
+This repository contains the official implementation of **Learning Deep Equihash Functions**, as detailed in my [thesis](https://hdl.handle.net/1866/40944).
 
 ## Table of Contents
   - [Installation](README.md#installation)
